@@ -1,0 +1,21 @@
+# fly.io デプロイ例: `fly launch --copy-config` → `fly deploy`
+# 注意: data/players.json はコンテナ内に書くので、本番はSupabase環境変数を設定すること
+#   fly secrets set SUPABASE_URL=https://xxx.supabase.co SUPABASE_KEY=eyJ...
+app = "mugen-no-mori"
+primary_region = "nrt"   # 東京
+
+[build]
+
+[env]
+  PORT = "2567"
+
+[http_service]
+  internal_port = 2567
+  force_https = true
+  auto_stop_machines = false   # ゲームサーバーは常駐
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
