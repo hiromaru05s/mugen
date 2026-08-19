@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>夢幻の森 — prototype (no-art slice)</title>
+<style>
+:root{--ink:#0d1512;--panel:#16241f;--ivory:#e8e2d2;--dim:#8fa598;--gold:#e0b64f;--red:#c33d2e;--cyan:#5bc8b0}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--ink);color:var(--ivory);font-family:system-ui,sans-serif;overflow:hidden}
+#game{display:block;width:100vw;height:100vh}
+#hud{position:fixed;inset:0;pointer-events:none;font-size:13px}
+#topbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(22,36,31,.85);
+ border:1px solid #2c4038;border-radius:8px;padding:6px 14px;display:flex;gap:16px;align-items:center}
+#timer{font-size:16px;font-weight:700;color:var(--gold)}
+#announce{position:absolute;top:70px;left:50%;transform:translateX(-50%);font-size:20px;font-weight:700;
+ color:var(--gold);text-shadow:0 2px 8px #000;opacity:0;transition:opacity .3s}
+#contrib{position:absolute;top:46px;left:50%;transform:translateX(-50%);display:flex;gap:10px;
+ background:rgba(22,36,31,.85);border:1px solid #2c4038;border-radius:8px;padding:4px 12px;font-size:11px}
+#contrib:empty{display:none}
+#specTxt{position:absolute;bottom:76px;left:50%;transform:translateX(-50%);color:var(--dim);font-size:12px;
+ text-shadow:0 1px 3px #000}
+#shopHint{position:absolute;bottom:76px;left:50%;transform:translateX(-50%);background:rgba(22,36,31,.9);
+ border:1px solid var(--gold);border-radius:8px;padding:5px 12px;font-size:12px}
+#shopHint:empty{display:none}
+#stats{position:absolute;left:10px;bottom:10px;background:rgba(22,36,31,.85);border:1px solid #2c4038;
+ border-radius:8px;padding:8px 12px;min-width:210px}
+.bar{height:10px;background:#0a0f0d;border-radius:5px;overflow:hidden;margin:3px 0 6px}
+.bar>div{height:100%;transition:width .15s}
+#skills{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
+.sk{width:52px;height:56px;background:rgba(22,36,31,.9);border:1px solid #3a5248;border-radius:8px;
+ position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px}
+.sk b{font-size:14px;color:var(--gold)}
+.sk .cd{position:absolute;inset:0;background:rgba(0,0,0,.65);border-radius:8px;display:flex;
+ align-items:center;justify-content:center;font-size:16px;font-weight:700}
+#minimap{position:absolute;right:10px;top:10px;border:1px solid #2c4038;border-radius:8px;background:rgba(13,21,18,.9)}
+#feed{position:absolute;right:10px;top:170px;width:230px;font-size:11px;color:var(--dim);text-align:right}
+#feed div{margin-bottom:2px;text-shadow:0 1px 2px #000}
+#overlay{position:fixed;inset:0;background:rgba(8,14,11,.9);display:flex;align-items:center;justify-content:center;z-index:10}
+.panel{background:var(--panel);border:1px solid var(--gold);border-radius:12px;padding:26px;max-width:560px;width:92%}
+.panel h1{color:var(--gold);letter-spacing:.2em;margin-bottom:4px}
+.panel h2{color:var(--gold);margin-bottom:10px}
+.panel p{color:var(--dim);font-size:13px;line-height:1.6;margin-bottom:14px}
+.classes{display:flex;gap:8px;margin-bottom:8px;pointer-events:auto;flex-wrap:wrap}
+.cls{flex:1;min-width:30%;background:#1d3129;border:1px solid #3a5248;border-radius:10px;padding:10px;cursor:pointer;text-align:center}
+.cls:hover{border-color:var(--gold)}
+.cls h3{margin-bottom:6px}
+.cls small{color:var(--dim);font-size:11px;line-height:1.4;display:block}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px}
+td,th{padding:5px 8px;border-bottom:1px solid #2c4038;text-align:left}
+th{color:var(--dim);font-weight:500;font-size:11px}
+.btn{pointer-events:auto;background:var(--gold);color:#1b1712;border:0;border-radius:8px;padding:10px 20px;
+ font-weight:700;font-size:14px;cursor:pointer}
+.hidden{display:none!important}
+kbd{background:#0a0f0d;border:1px solid #3a5248;border-radius:4px;padding:1px 5px;font-size:11px}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div id="topbar"><span id="timer">0:00</span><span id="phaseTxt" style="color:var(--dim)">森は静か</span><span id="aliveTxt"></span></div>
+  <div id="contrib"></div>
+  <div id="specTxt"></div>
+  <div id="announce"></div>
+  <div id="stats">
+    <div style="display:flex;justify-content:space-between"><b id="clsName"></b><span>Lv<span id="lv">1</span> <span style="color:var(--gold)" id="gold">0</span>G</span></div>
+    HP<div class="bar"><div id="hpbar" style="background:#4caf7d"></div></div>
+    MP<div class="bar" style="height:6px"><div id="mpbar" style="background:#5a9ec0"></div></div>
+    <span id="xptxt" style="font-size:11px;color:var(--dim)"></span><div class="bar" style="height:5px"><div id="xpbar" style="background:var(--cyan)"></div></div>
+    <div id="mateHp" style="font-size:11px;color:var(--dim);margin-top:4px"></div>
+  </div>
+  <div id="skills"></div>
+  <div id="shopHint"></div>
+  <canvas id="minimap" width="150" height="150"></canvas>
+  <div id="feed"></div>
+</div>
+<div id="overlay">
+  <div class="panel" id="startPanel">
+    <h1>夢幻の森</h1>
+    <p>prototype — 検証スライス。4チーム×3人。森の最奥のドラゴンを討て。<br>
+    RPは<b style="color:var(--gold)">チーム単位のドラゴン与ダメ割合</b>で決まる。</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px;pointer-events:auto">
+      <div class="cls" id="modeKb" onclick="setMode('kb')" style="text-align:left;padding:10px">
+        <h3 style="font-size:14px;margin-bottom:4px">⌨ キーボード操作</h3>
+        <small><kbd>矢印</kbd>移動 / <kbd>Q</kbd>攻撃(自動照準・長押しOK)<br><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd><kbd>T</kbd>スキル / <kbd>S</kbd>ポーション</small>
+      </div>
+      <div class="cls" id="modeMouse" onclick="setMode('mouse')" style="text-align:left;padding:10px">
+        <h3 style="font-size:14px;margin-bottom:4px">🖱 マウス操作</h3>
+        <small><kbd>WASD</kbd>移動 / <kbd>マウス</kbd>照準+<kbd>クリック</kbd>攻撃<br><kbd>1</kbd>〜<kbd>4</kbd>スキル / <kbd>5</kbd>ポーション</small>
+      </div>
+    </div>
+    <div class="classes">
+      <div class="cls" onclick="startGame('warrior')"><div id="pv_warrior" style="height:46px"></div><h3>⚔ 近接</h3><small>突進・咆哮・盾打・大斬撃<br>予兆を読んで懐に入れ</small></div>
+      <div class="cls" onclick="startGame('mage')"><div id="pv_mage" style="height:46px"></div><h3>✦ 魔法</h3><small>ブリンク・減速域・魔氷壁・爆裂<br>距離と視線を制せ</small></div>
+      <div class="cls" onclick="startGame('thief')"><div id="pv_thief" style="height:46px"></div><h3>◆ 盗賊</h3><small>罠・隠密・検知・毒刃<br>ゴールド+50%。難しい</small></div>
+      <div class="cls" onclick="startGame('priest')"><div id="pv_priest" style="height:46px"></div><h3>✚ 僧侶</h3><small>祝福・聖域・聖障壁・天光<br>攻撃はほぼ無し</small></div>
+      <div class="cls" onclick="startGame('ranger')"><div id="pv_ranger" style="height:46px"></div><h3>➹ 遠距離</h3><small>狙撃・跳躍・マーク・煙幕<br>紙耐久の暗殺者</small></div>
+    </div>
+    <p style="font-size:11px">味方2人はAI。敵3チームもAIで、成長しドラゴンを狙う。外周は時間とともに枯死する。<br>
+    <b style="color:var(--cyan)">茂み</b>や<b style="color:var(--cyan)">木の陰</b>(射線が切れる位置)に入ると敵から見えない。攻撃・被弾すると少しの間だけ露見する。<br>
+    完全に隠れている間は自分に水色リング、隠れ場所で露見中は金色リングが付く。</p>
+  </div>
+  <div class="panel hidden" id="resultPanel"></div>
+</div>
+<script>
+'use strict';
+/* ================= config ================= */
+const CFG={
+ mapR:1900, coreR:260, matchLen:480, unsealAt:240, witherStart:60,
+ tick:1/60, mobCount:46, treeCount:170, bushCount:60, chestCount:26,
+ teamColors:['#e0b64f','#c05a5a','#5a7ec0','#7ec05a'],
+};
+const CLASSES={ // 各職4スキル+マナコスト(SPEC §4 M1要件)
+ warrior:{jp:'近接',glyph:'⚔',hp:340,spd:150,range:46,atk:26,atkCd:.7,
+  s1:{jp:'突進',cd:6,mp:15},s2:{jp:'咆哮',cd:11,mp:20},
+  s3:{jp:'盾打',cd:10,mp:20},s4:{jp:'大斬撃',cd:14,mp:30}},
+ mage:{jp:'魔法',glyph:'✦',hp:230,spd:145,range:330,atk:30,atkCd:.9,
+  s1:{jp:'ブリンク',cd:7,mp:20},s2:{jp:'減速域',cd:10,mp:25},
+  s3:{jp:'魔氷壁',cd:14,mp:30},s4:{jp:'爆裂',cd:9,mp:35}},
+ thief:{jp:'盗賊',glyph:'◆',hp:250,spd:165,range:44,atk:24,atkCd:.55,
+  s1:{jp:'罠',cd:8,mp:20},s2:{jp:'隠密',cd:12,mp:25},
+  s3:{jp:'検知',cd:14,mp:20},s4:{jp:'毒刃',cd:10,mp:15}},
+ priest:{jp:'僧侶',glyph:'✚',hp:260,spd:140,range:40,atk:10,atkCd:.9,
+  s1:{jp:'祝福',cd:9,mp:25},s2:{jp:'聖域',cd:14,mp:30},
+  s3:{jp:'聖障壁',cd:16,mp:30},s4:{jp:'天光',cd:12,mp:25}},
+ ranger:{jp:'遠距離',glyph:'➹',hp:210,spd:150,range:430,atk:38,atkCd:1.25,
+  s1:{jp:'狙撃',cd:10,mp:25},s2:{jp:'跳躍',cd:9,mp:15},
+  s3:{jp:'マーク',cd:12,mp:15},s4:{jp:'煙幕',cd:16,mp:25}},
+};
+// 敵チーム編成(5職を見せる)/ 自チームAI2人は職に応じた補完編成
+const COMPS=[null,['warrior','ranger','priest'],['mage','thief','priest'],['warrior','mage','ranger']];
+const MATES={warrior:['priest','ranger'],mage:['warrior','priest'],thief:['warrior','priest'],
+ priest:['warrior','ranger'],ranger:['warrior','priest']};
+/* ================= state ================= */
+let G=null, mouse={x:0,y:0,down:false}, keys={};
+let ctrlMode='kb'; // 'kb'=矢印+QWER(自動照準) / 'mouse'=WASD+マウス照準
+function setMode(m){ctrlMode=m;
+ const kb=document.getElementById('modeKb'),ms=document.getElementById('modeMouse');
+ if(kb)kb.style.borderColor=m==='kb'?'var(--gold)':'#3a5248';
+ if(ms)ms.style.borderColor=m==='mouse'?'var(--gold)':'#3a5248';
+}
+// キーボードモードの自動照準: 射程+マグネット圏内の可視敵で最寄り、いなければ向いてる方向
+function kbAim(p){
+ const s=stats(p); let best=null,bd=1e9;
+ hostilesOf(p).forEach(h=>{
+  if(!seenBy(0,h))return;
+  const d=dist(p,h);
+  if(d<s.range+(h.r||0)+130&&d<bd){bd=d;best=h}});
+ if(best)return{x:best.x,y:best.y};
+ return facePt(p);
+}
+function facePt(p){return {x:p.x+Math.cos(p.facing)*220,y:p.y+Math.sin(p.facing)*220}}
+function rnd(a,b){return a+Math.random()*(b-a)}
+function dist(a,b){const dx=a.x-b.x,dy=a.y-b.y;return Math.hypot(dx,dy)}
+function ang(a,b){return Math.atan2(b.y-a.y,b.x-a.x)}
+function clamp(v,a,b){return v<a?a:v>b?b:v}
+function polar(r,th){return {x:Math.cos(th)*r,y:Math.sin(th)*r}}
+
+function newGame(cls){
+ G={t:0,over:false,announceT:0,feed:[],specIdx:0,whetPrice:120,merchants:[],
+  gimmicks:[],gimmickBuff:[0,0,0,0],qte:null,walls:[],
+  trees:[],bushes:[],chests:[],mobs:[],projs:[],zones:[],traps:[],units:[],
+  dragon:null,unsealed:false,witherR:CFG.mapR,
+  dragonDmg:[0,0,0,0], teamAliveCache:4, potions:3, cam:{x:0,y:0}, floats:[], swings:[], parts:[], dapples:[]};
+ // terrain
+ for(let i=0;i<CFG.treeCount;i++){const r=rnd(CFG.coreR+120,CFG.mapR-60),p=polar(r,rnd(0,Math.PI*2));
+   G.trees.push({x:p.x,y:p.y,r:rnd(16,30),v:i%3,fl:i&1})}
+ for(let i=0;i<CFG.bushCount;i++){const r=rnd(CFG.coreR+100,CFG.mapR-80),p=polar(r,rnd(0,Math.PI*2));
+   G.bushes.push({x:p.x,y:p.y,r:rnd(34,52),v:i%2})}
+ // 商人(浅層バンドに3体)
+ for(let i=0;i<3;i++){const p=polar(rnd(CFG.mapR*.45,CFG.mapR*.6),i*Math.PI*2/3+rnd(-.4,.4));
+   G.merchants.push({x:p.x,y:p.y})}
+ // 封印装置(深層に3基 — 解除でチームの対竜与ダメ+12%)
+ for(let i=0;i<3;i++){const p=polar(rnd(CFG.coreR+260,CFG.mapR*.42),i*Math.PI*2/3+rnd(-.5,.5)+.7);
+   G.gimmicks.push({x:p.x,y:p.y,unlocked:false})}
+ // 地面の斑(ドット風テクスチャ)
+ for(let i=0;i<650;i++){const r=rnd(20,CFG.mapR-20),p=polar(r,rnd(0,Math.PI*2));
+   const light=Math.random()<.5;
+   G.dapples.push({x:p.x,y:p.y,r:rnd(3,9),a:rnd(.2,.5),
+     c:r<CFG.coreR?(light?'#2e3524':'#1b2015'):(light?'#20382a':'#101c16')})}
+ for(let i=0;i<CFG.chestCount;i++){const r=rnd(CFG.coreR+150,CFG.mapR-200),p=polar(r,rnd(0,Math.PI*2));
+   G.chests.push({x:p.x,y:p.y,gold:Math.round(rnd(30,90)*(1.6-r/CFG.mapR)),open:false})}
+ for(let i=0;i<CFG.mobCount;i++){const r=rnd(CFG.coreR+180,CFG.mapR-150),p=polar(r,rnd(0,Math.PI*2));
+   const deep=1.7-r/CFG.mapR; // deeper = stronger
+   G.mobs.push({isMob:true,x:p.x,y:p.y,home:{x:p.x,y:p.y},r:14,hp:70*deep,maxHp:70*deep,atk:12*deep,
+     xp:Math.round(24*deep),gold:Math.round(12*deep),state:'idle',tAtk:0,tele:null,tgt:null,spd:110,face:1})}
+ // teams: 4 teams x 3, spawn on outer ring at 4 compass points
+ for(let team=0;team<4;team++){
+  const base=polar(CFG.mapR-140,team*Math.PI/2+Math.PI/4);
+  for(let k=0;k<3;k++){
+   const c=team===0?(k===0?cls:MATES[cls][k-1]):COMPS[team][k];
+   const C=CLASSES[c];
+   G.units.push({team,cls:c,isPlayer:team===0&&k===0,
+    x:base.x+rnd(-40,40),y:base.y+rnd(-40,40),r:15,
+    hp:C.hp,maxHp:C.hp,mp:100,lv:1,xp:0,gold:0,atkT:0,s1T:0,s2T:0,s3T:0,s4T:0,
+    stealth:0,slowT:0,buffT:0,shieldT:0,markT:0,stunT:0,poisonT:0,venom:0,
+    dead:false,facing:0,ai:{wp:null,think:0},dmgDealt:0,revealT:0,potions:team===0&&k===0?0:2});
+  }
+ }
+ // dragon (sealed)
+ G.dragon=null;
+ const pp=G.units.find(u=>u.isPlayer);G.cam.x=pp.x;G.cam.y=pp.y;mouse.wx=pp.x;mouse.wy=pp.y-1;
+ announce('森に入った。深部ほど強く、豊かだ');
+}
+const player=()=>G.units.find(u=>u.isPlayer);
+const alive=u=>!u.dead;
+function stats(u){ // level+gold scaling
+ const C=CLASSES[u.cls];
+ const lvMul=1+.13*(u.lv-1), goldMul=1+u.gold/900;
+ return {atk:C.atk*lvMul*goldMul*(u.buffT>0?1.3:1)*(1+.08*(u.whet||0)), maxHp:C.hp*lvMul,
+  spd:C.spd*(u.slowT>0?.55:1)*(u.cls==='thief'&&u.stealth>0?1.2:1), range:C.range, atkCd:C.atkCd};
+}
+function gainXp(u,xp,gold){
+ u.xp+=xp; u.gold+=Math.round(gold*(u.cls==='thief'?1.5:1));
+ const need=60+u.lv*45;
+ if(u.xp>=need){u.xp-=need;u.lv++;const s=stats(u);u.maxHp=s.maxHp;u.hp=Math.min(u.maxHp,u.hp+60);
+  if(u.isPlayer){feed(`Lv${u.lv}に成長`);sfx('level')};fct(u.x,u.y-30,'LvUP','#e0b64f');ringAt(u.x,u.y,'#e0b64f')}
+}
+/* ================= combat helpers ================= */
+function fct(x,y,txt,color){G.floats.push({x,y,txt,color,t:.9});if(G.floats.length>60)G.floats.shift()}
+function spawnParts(x,y,n,color,spd,life){
+ for(let i=0;i<n;i++){const a=rnd(0,Math.PI*2),v=rnd(spd*.3,spd);
+  G.parts.push({kind:'dot',x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,t:rnd(life*.5,life),T:life,color,r:rnd(1.5,3.5)})}
+ if(G.parts.length>320)G.parts.splice(0,G.parts.length-320)}
+function ringAt(x,y,color,R){G.parts.push({kind:'ring',x,y,vx:0,vy:0,t:.7,T:.7,color,r:R||34})}
+function unlockGimmick(dev,team){
+ dev.unlocked=true;
+ G.gimmickBuff[team]+= .12;
+ const mates=G.units.filter(u=>u.team===team&&alive(u));
+ mates.forEach(u=>gainXp(u,30,120/(mates.length||1)));
+ spawnParts(dev.x,dev.y,20,'#5bc8b0',120,.8);ringAt(dev.x,dev.y,'#5bc8b0',60);
+ if(team===0){announce(`装置を解除 — <b>竜への与ダメ+${Math.round(G.gimmickBuff[0]*100)}%</b>`);sfx('level')}
+ else feed(`${teamName(team)}が封印装置を解除した`);
+}
+function damage(src,tgt,amt){
+ if(tgt.dead)return;
+ if(tgt.isDragon&&src&&src.team!==undefined&&src.team>=0)
+  amt*=1+(G.gimmickBuff[src.team]||0); // 装置解除バフ
+ if(tgt.shieldT>0)amt*=.6;   // 聖障壁
+ if(tgt.markT>0)amt*=1.15;   // マーク
+ tgt.hp-=amt;
+ if(tgt.revealT!==undefined)tgt.revealT=Math.max(tgt.revealT,.8); // 被弾でも露見
+ fct(tgt.x+rnd(-8,8),tgt.y-18,Math.round(amt),tgt.team===0?'#ff6a5a':'#efe7d5');
+ if((src&&src.isPlayer)||tgt.isPlayer)sfx(tgt.isPlayer?'hurt':'hit');
+ if(tgt.isDragon){G.dragonDmg[src.team]+=amt; if(tgt.hp<=0)dragonDown(src)}
+ else if(tgt.isMob){
+  if(tgt.hp<=0&&!tgt.rewarded){tgt.rewarded=true;
+   spawnParts(tgt.x,tgt.y,8,'#7a6f9a',60,.5);
+   if(src&&src.team!==undefined){
+    const mates=G.units.filter(x=>x.team===src.team&&!x.dead&&dist(x,tgt)<350);
+    const share=mates.length||1;
+    mates.forEach(x=>gainXp(x,tgt.xp/share,tgt.gold/share));
+    if(src.isPlayer)feed(`モブ撃破 +${Math.round(tgt.xp)}xp`);
+   }}
+ }
+ else if(tgt.hp<=0){tgt.dead=true;onUnitDeath(src,tgt)}
+}
+function onUnitDeath(src,tgt){
+ spawnParts(tgt.x,tgt.y,12,'#7a5f9a',75,.6);
+ if(tgt.isPlayer)feed('あなたは倒れた…(観戦モード)');
+ else feed(`${teamName(tgt.team)}の${CLASSES[tgt.cls].jp}が倒れた`);
+ if(src&&src.team!==undefined&&src.team!==tgt.team){ // loot: xp/gold奪取
+   const loots=G.units.filter(u=>u.team===src.team&&alive(u));
+   const stolen=Math.round(tgt.gold*.3);
+   loots.forEach(u=>gainXp(u,20+tgt.lv*10,stolen/loots.length));
+   tgt.gold=Math.round(tgt.gold*.7);
+   if(src.team===0)feed(`<b style="color:var(--gold)">奪取</b> +${20+tgt.lv*10}xp / +${stolen}G(チーム分配)`);
+   else if(tgt.team===0)feed(`${teamName(src.team)}に${stolen}G奪われた…`);
+ }
+ const t=G.units.filter(u=>u.team===tgt.team&&alive(u));
+ if(t.length===0)feed(`<b>${teamName(tgt.team)} 全滅</b>`);
+}
+function teamName(i){return ['あなたのチーム','紅蓮隊','蒼流隊','翠風隊'][i]}
+function feed(msg){G.feed.unshift({msg,t:G.t});if(G.feed.length>8)G.feed.pop()}
+function announce(msg){const el=document.getElementById('announce');el.innerHTML=msg;el.style.opacity=1;G.announceT=3.5}
+/* ================= skills ================= */
+function tryAttack(u,tx,ty){
+ const s=stats(u); if(u.atkT>0||u.stunT>0)return;
+ u.atkT=s.atkCd; u.facing=Math.atan2(ty-u.y,tx-u.x);
+ u.revealT=Math.max(u.revealT,1.4); // 攻撃(狙撃・ブッシュ内攻撃含む)で短時間露見
+ if(u.cls==='mage'||u.cls==='ranger'){ // projectile
+  const spd=u.cls==='ranger'?560:430;
+  G.projs.push({x:u.x,y:u.y,vx:Math.cos(u.facing)*spd,vy:Math.sin(u.facing)*spd,
+   r:u.cls==='ranger'?5:7,life:1.05,src:u,dmg:s.atk});
+ } else { // melee arc: hit all hostiles in range+arc
+  G.swings.push({x:u.x,y:u.y,dir:u.facing,r:s.range,t:.16,team:u.team});
+  if(u.isPlayer)sfx('swing');
+  const wasStealth=u.stealth>0; u.stealth=0;
+  hostilesOf(u).forEach(h=>{
+   if(dist(u,h)<s.range+h.r&&Math.abs(angleDiff(ang(u,h),u.facing))<1.1){
+    let d=s.atk;
+    if(u.cls==='thief'){const behind=Math.abs(angleDiff(h.facing??0,ang(u,h)))<1.2;
+      if(behind||wasStealth)d*=1.8;
+      if(u.venom>0){u.venom--; // 毒刃: ユニットには毒DoT、モブ等には追撃
+       if(h.poisonT!==undefined){h.poisonT=3;h.poisonSrc=u;fct(h.x,h.y-26,'毒','#8fe08f')}
+       else d+=12}}
+    damage(u,h,d);
+   }});
+ }
+}
+function angleDiff(a,b){let d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return d}
+function useSkill(u,n,tx,ty){
+ const C=CLASSES[u.cls],S=C['s'+n];if(!S)return;
+ if(u['s'+n+'T']>0||u.stunT>0)return;
+ if(u.mp<S.mp){if(u.isPlayer)feed('マナ不足');return}
+ const dir=Math.atan2(ty-u.y,tx-u.x);
+ u['s'+n+'T']=S.cd;u.mp-=S.mp;
+ const s=stats(u);
+ switch(u.cls+n){
+  case 'warrior1':u.dash={dir,t:.22};u.stealth=0;break;
+  case 'warrior2':G.units.filter(a=>a.team===u.team&&alive(a)&&dist(a,u)<170)
+    .forEach(a=>{a.buffT=5;spawnParts(a.x,a.y,6,'#e0b64f',45,.5)});break;
+  case 'warrior3': // 盾打: 前方近距離+スタン1.2s
+   G.swings.push({x:u.x,y:u.y,dir,r:70,t:.16,team:u.team});
+   hostilesOf(u).forEach(h=>{if(dist(u,h)<70+h.r&&Math.abs(angleDiff(ang(u,h),dir))<1.0){
+    damage(u,h,s.atk*.8);
+    if(h.stunT!==undefined){h.stunT=Math.max(h.stunT,1.2);fct(h.x,h.y-30,'スタン','#ffd97a')}}});
+   if(u.isPlayer)sfx('hit');break;
+  case 'warrior4': // 大斬撃: 広角2倍
+   G.swings.push({x:u.x,y:u.y,dir,r:s.range+26,t:.2,team:u.team});
+   hostilesOf(u).forEach(h=>{if(dist(u,h)<s.range+26+h.r&&Math.abs(angleDiff(ang(u,h),dir))<1.7)
+    damage(u,h,s.atk*2)});
+   if(u.isPlayer)sfx('swing');break;
+  case 'mage1':{spawnParts(u.x,u.y,8,'#5bc8b0',70,.45);
+   const d=Math.min(180,Math.hypot(tx-u.x,ty-u.y));
+   u.x+=Math.cos(dir)*d;u.y+=Math.sin(dir)*d;resolveTerrain(u);
+   spawnParts(u.x,u.y,8,'#5bc8b0',70,.45);break}
+  case 'mage2':G.zones.push({x:tx,y:ty,r:95,team:u.team,kind:'slow',life:4,tele:0});break;
+  case 'mage3':{ // 魔氷壁: 視線と移動を遮る氷晶柱×3(壁は木と同じく射線遮蔽)
+   const wd=Math.min(200,Math.hypot(tx-u.x,ty-u.y)||120),
+    px2=u.x+Math.cos(dir)*wd,py2=u.y+Math.sin(dir)*wd;
+   for(let i=-1;i<=1;i++)G.walls.push({
+    x:px2+Math.cos(dir+Math.PI/2)*i*40,y:py2+Math.sin(dir+Math.PI/2)*i*40,r:20,life:4.5});
+   spawnParts(px2,py2,10,'#bfeee2',60,.5);break}
+  case 'mage4': // 爆裂: 予兆0.6s→AoE(対プレイヤーでも予兆式戦闘)
+   G.zones.push({x:tx,y:ty,r:85,team:u.team,kind:'nuke',life:.6,tele:.6,dmg:90,src:u});break;
+  case 'thief1':G.traps.push({x:u.x,y:u.y,r:26,team:u.team,src:u,life:40});break;
+  case 'thief2':u.stealth=4;spawnParts(u.x,u.y,12,'#4a8f5f',60,.5);break;
+  case 'thief3':{ // 検知: 周囲450pxの敵を強制露見
+   let nf=0;G.units.forEach(h=>{if(h.team!==u.team&&alive(h)&&dist(u,h)<450){
+    h.revealT=Math.max(h.revealT,3);nf++}});
+   ringAt(u.x,u.y,'#e0b64f',90);
+   if(u.isPlayer)feed(`検知: ${nf}人を露見させた`);break}
+  case 'thief4':u.venom=3;fct(u.x,u.y-30,'毒刃','#8fe08f');break;
+  case 'priest1':G.units.filter(a=>a.team===u.team&&alive(a)&&dist(a,u)<170).forEach(a=>{
+    a.hp=Math.min(a.maxHp,a.hp+90);fct(a.x,a.y-26,'+90','#8fe0a8');spawnParts(a.x,a.y,6,'#ffd97a',40,.5)});
+   sfx('heal');break;
+  case 'priest2':G.zones.push({x:tx,y:ty,r:90,team:u.team,kind:'heal',life:4,tele:0});sfx('heal');break;
+  case 'priest3':G.units.filter(a=>a.team===u.team&&alive(a)&&dist(a,u)<170).forEach(a=>{
+    a.shieldT=4;spawnParts(a.x,a.y,6,'#bfeee2',40,.5)});sfx('heal');break;
+  case 'priest4':{const m=G.units.filter(a=>a.team===u.team&&alive(a))
+    .sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp)[0];
+   if(m){m.hp=Math.min(m.maxHp,m.hp+180);fct(m.x,m.y-30,'+180','#8fe0a8');
+    spawnParts(m.x,m.y,10,'#ffd97a',60,.6);sfx('heal')}break}
+  case 'ranger1':G.projs.push({x:u.x,y:u.y,vx:Math.cos(dir)*700,vy:Math.sin(dir)*700,
+    r:5,life:1.1,src:u,dmg:s.atk*2.2,snipe:true});
+   u.revealT=Math.max(u.revealT,1.4);sfx('swing');break;
+  case 'ranger2':u.dash={dir:dir+Math.PI,t:.18,noHit:true};spawnParts(u.x,u.y,6,'#bfeee2',50,.4);break;
+  case 'ranger3':{ // マーク: 照準先の可視敵を12s露見+被ダメ+15%
+   let bt=null,bd=1e9;G.units.forEach(h=>{if(h.team!==u.team&&alive(h)&&seenBy(u.team,h)){
+    const d2=Math.hypot(h.x-tx,h.y-ty);if(d2<120&&d2<bd){bd=d2;bt=h}}});
+   if(!bt){u.s3T=1;u.mp+=S.mp;if(u.isPlayer)feed('マークする対象がいない');break} // 空撃ちは返金
+   bt.markT=12;fct(bt.x,bt.y-30,'マーク','#e0b64f');break}
+  case 'ranger4': // 煙幕: 自分の足元に移動式ブッシュ相当の隠蔽ゾーン
+   G.zones.push({x:u.x,y:u.y,r:80,team:u.team,kind:'smoke',life:5,tele:0});
+   spawnParts(u.x,u.y,14,'#8fa598',70,.6);break;
+ }
+}
+/* ---- vision: bush + tree line-of-sight ---- */
+function bushOf(u){for(const b of G.bushes){if(dist(u,b)<b.r)return b}return null}
+function losBlocked(a,b){ // a-bの線分が木/魔氷壁で遮られているか
+ const dx=b.x-a.x,dy=b.y-a.y,L2=dx*dx+dy*dy;
+ if(!L2)return false;
+ for(const arr of [G.trees,G.walls])for(const t of arr){
+  let s=((t.x-a.x)*dx+(t.y-a.y)*dy)/L2; s=s<0?0:s>1?1:s;
+  const px=a.x+s*dx-t.x,py=a.y+s*dy-t.y;
+  if(px*px+py*py<t.r*t.r)return true;
+ }
+ return false;
+}
+// 視界半径: 通常750px、枯死域内の観測者は350pxに低下(SPEC §2「枯死域は視界悪化」)
+function viewR(v){return Math.hypot(v.x,v.y)>G.witherR?350:750}
+// team側からユニットuが見えるか。攻撃/被弾直後(revealT)は露見(距離も無視して見える)。
+// ブッシュ内: 同じブッシュ(+周縁24px)に自チームの生存者がいれば見える
+// ブッシュ外: 自チームの誰かが視界半径内かつ木に遮られない射線を持てば見える
+function smokeOf(u){return (G.zones||[]).find(z=>z.kind==='smoke'&&dist(u,z)<z.r)||null}
+function seenBy(team,u){
+ if(u.revealT>0||u.markT>0||u.isMob||u.isDragon)return true;
+ const cover=bushOf(u)||smokeOf(u); // 茂み or 煙幕
+ return G.units.some(v=>v.team===team&&!v.dead&&dist(v,u)<viewR(v)&&
+  (cover?dist(v,cover)<cover.r+24:!losBlocked(v,u)));
+}
+function hostilesOf(u){
+ const hs=G.units.filter(h=>alive(h)&&h.team!==u.team&&h.stealth<=0);
+ G.mobs.forEach(m=>{if(m.hp>0)hs.push(m)});
+ if(G.dragon&&G.dragon.hp>0)hs.push(G.dragon);
+ return hs;
+}
+/* ================= dragon ================= */
+function unseal(){
+ G.unsealed=true;
+ G.dragon={isDragon:true,x:0,y:0,r:64,hp:7000,maxHp:7000,tAtk:2,phase:0,team:-1,facing:0};sfx('unseal'); // 4スキル化でDPS増→7000(AIのみ討伐率~5割狙い)
+ spawnParts(0,0,30,'#e0b64f',180,.9);ringAt(0,0,'#5bc8b0',120);
+ announce('<b>封印が解けた — 竜が目覚める</b>');
+}
+function dragonDown(src){
+ G.dragon.hp=0; sfx('victory');
+ spawnParts(G.dragon.x,G.dragon.y,40,'#e0b64f',220,1.1);ringAt(G.dragon.x,G.dragon.y,'#e0b64f',140);
+ endMatch(true, `とどめを刺したのは ${teamName(src.team)}(RPは与ダメ割合制 — 横取りに意味はない)`);
+}
+function updateDragon(dt){
+ const D=G.dragon; if(!D||D.hp<=0)return;
+ const ph=D.hp<D.maxHp*.33?2:D.hp<D.maxHp*.66?1:0;
+ if(ph!==D.phase){D.phase=ph;announce(ph===1?'竜が翼を広げた(第2形態)':'竜が咆哮する(最終形態)')}
+ D.tAtk-=dt;
+ const foes=G.units.filter(u=>alive(u)&&dist(u,D)<520);
+ if(foes.length&&D.tAtk<=0){
+  D.tAtk=[2.6,2.0,1.7][ph];
+  const t=foes[Math.floor(Math.random()*foes.length)];
+  const n=[1,2,2][ph];
+  for(let i=0;i<n;i++){
+   const off=polar(rnd(0,70),rnd(0,Math.PI*2));
+   G.zones.push({x:t.x+off.x,y:t.y+off.y,r:78,team:-1,kind:'nuke',life:.8,tele:.8,dmg:80,src:D});
+  }
+ }
+}
+/* ================= AI ================= */
+function aiThink(u,dt){
+ u.ai.think-=dt; if(u.ai.think>0)return; u.ai.think=.22;
+ if(u.stunT>0){u.ai.mv=null;return} // スタン中は行動不能
+ // telegraph dodge: highest priority — this IS the game's grammar
+ const zz=G.zones.find(z=>z.kind==='nuke'&&z.tele>0&&dist(u,z)<z.r+u.r+8);
+ if(zz){u.ai.mv=ang(zz,u);u.ai.think=.1;return}
+ if(u.potions>0&&u.hp<u.maxHp*.3){u.potions--;u.hp=Math.min(u.maxHp,u.hp+110);fct(u.x,u.y-26,'+110','#4caf7d')}
+ const s=stats(u), mates=G.units.filter(a=>a.team===u.team&&alive(a));
+ const leader=mates[0];
+ // priest: 回復最優先
+ if(u.cls==='priest'){
+  if(u.s1T<=0&&mates.some(a=>a.hp<a.maxHp*.65&&dist(a,u)<170))useSkill(u,1,u.x,u.y);
+  const hurt2=mates.filter(a=>a.hp<a.maxHp*.5);
+  if(u.s2T<=0&&hurt2.length>=2)useSkill(u,2,hurt2[0].x,hurt2[0].y);
+  if(u.s3T<=0&&hurt2.length>=2)useSkill(u,3,u.x,u.y);
+  if(u.s4T<=0){const m2=mates.find(a=>a.hp<a.maxHp*.35);if(m2)useSkill(u,4,m2.x,m2.y)}
+ }
+ // pick target
+ let tgt=null,best=1e9;
+ hostilesOf(u).forEach(h=>{
+  if(u.cls==='priest'&&!h.isDragon)return; // 僧侶は竜以外を攻撃対象にしない
+  if(!seenBy(u.team,h))return; // ブッシュ内の敵は索敵不可(当たり判定は別)
+  const d=dist(u,h);
+  const pref=h.isDragon&&G.unsealed?d*.3:d; // dragon priority late
+  if(d<(h.isDragon?460:240)&&pref<best){best=pref;tgt=h}});
+ // flee if hurt
+ if(u.hp<u.maxHp*.28&&tgt&&!tgt.isDragon){u.ai.wp={x:u.x-(tgt.x-u.x),y:u.y-(tgt.y-u.y)};tgt=null}
+ u.ai.tgt=tgt;
+ if(tgt){
+  u.ai.wp=null;
+  const d=dist(u,tgt), inR=d<s.range+tgt.r-4;
+  if(inR){tryAttack(u,tgt.x,tgt.y);
+   if(u.cls==='warrior'&&u.s2T<=0&&mates.length>1)useSkill(u,2,u.x,u.y);
+   if(u.cls==='warrior'&&u.s3T<=0&&!tgt.isDragon&&!tgt.isMob)useSkill(u,3,tgt.x,tgt.y); // 盾打はPvP優先
+   if(u.cls==='warrior'&&u.s4T<=0)useSkill(u,4,tgt.x,tgt.y);
+   if(u.cls==='thief'&&u.s2T<=0&&u.hp<u.maxHp*.5)useSkill(u,2,u.x,u.y);
+   if(u.cls==='thief'&&u.s4T<=0)useSkill(u,4,u.x,u.y);
+  } else {
+   if((u.cls==='mage'||u.cls==='ranger')&&d<s.range)tryAttack(u,tgt.x,tgt.y);
+   if(u.cls==='mage'&&u.s2T<=0&&d<300)useSkill(u,2,tgt.x,tgt.y);
+   if(u.cls==='mage'&&u.s4T<=0&&d<330&&!tgt.isMob)useSkill(u,4,tgt.x,tgt.y);
+   if(u.cls==='ranger'&&u.s1T<=0&&d>180&&d<s.range)useSkill(u,1,tgt.x,tgt.y);
+   if(u.cls==='ranger'&&u.s3T<=0&&d<450&&!tgt.isDragon&&!tgt.isMob)useSkill(u,3,tgt.x,tgt.y);
+   if(u.cls==='warrior'&&u.s1T<=0&&d<260&&d>90)useSkill(u,1,tgt.x,tgt.y);
+  }
+  if(u.cls==='thief'&&u.s3T<=0&&d<350&&!tgt.isMob&&!tgt.isDragon)useSkill(u,3,u.x,u.y);
+  u.ai.mv=d>((u.cls==='mage'||u.cls==='ranger')?s.range*.7:s.range*.6)?ang(u,tgt):null;
+  if((u.cls==='mage'||u.cls==='ranger')&&d<150){u.ai.mv=ang(tgt,u); // kite
+   if(u.cls==='ranger'&&u.s2T<=0)useSkill(u,2,tgt.x,tgt.y);
+   if(u.cls==='ranger'&&u.s4T<=0&&u.hp<u.maxHp*.5)useSkill(u,4,u.x,u.y)}
+ } else if(u.isPlayer===false){
+  // AI盗賊: 近くの封印装置を解除しにいく(5秒チャネル)
+  if(u.cls==='thief'){
+   const dev=G.gimmicks.find(g2=>!g2.unlocked&&dist(u,g2)<420);
+   if(dev){
+    if(dist(u,dev)>46){u.ai.mv=ang(u,dev);return}
+    u.ai.mv=null;u.gimT=(u.gimT||0)+.22;
+    if(u.gimT>=5){u.gimT=0;unlockGimmick(dev,u.team)}
+    return}
+  }
+  // follow leader (if not leader) or roam deeper by time
+  if(u!==leader&&leader){ if(dist(u,leader)>130)u.ai.mv=ang(u,leader); else u.ai.mv=null }
+  else {
+   if(!u.ai.wp||dist(u,u.ai.wp)<60){
+    const depth=G.unsealed?rnd(0,CFG.coreR+150):clamp(CFG.mapR*(1-G.t/CFG.matchLen)-200,CFG.coreR+100,CFG.mapR-160);
+    const p=polar(rnd(Math.max(60,depth-250),depth),rnd(0,Math.PI*2));
+    u.ai.wp=p;
+   }
+   u.ai.mv=ang(u,u.ai.wp);
+   // open chest nearby
+   const c=G.chests.find(c=>!c.open&&dist(u,c)<40);
+   if(c){c.open=true;const g=c.gold;G.units.filter(a=>a.team===u.team&&alive(a)).forEach(a=>gainXp(a,10,g/mates.length))}
+  }
+ }
+ // wither escape overrides
+ if(Math.hypot(u.x,u.y)>G.witherR-60)u.ai.mv=ang(u,{x:0,y:0});
+}
+/* ================= update ================= */
+function resolveTerrain(u){
+ G.trees.forEach(t=>{const d=dist(u,t),min=t.r+u.r;
+  if(d<min&&d>0){const a=ang(t,u);u.x=t.x+Math.cos(a)*min;u.y=t.y+Math.sin(a)*min}});
+ G.walls.forEach(t=>{const d=dist(u,t),min=t.r+u.r;
+  if(d<min&&d>0){const a=ang(t,u);u.x=t.x+Math.cos(a)*min;u.y=t.y+Math.sin(a)*min}});
+ const rr=Math.hypot(u.x,u.y);
+ if(rr>CFG.mapR){const a=Math.atan2(u.y,u.x);u.x=Math.cos(a)*CFG.mapR;u.y=Math.sin(a)*CFG.mapR}
+ if(G.dragon&&G.dragon.hp>0){const d=dist(u,G.dragon),min=G.dragon.r+u.r;
+  if(d<min&&d>0){const a=ang(G.dragon,u);u.x=G.dragon.x+Math.cos(a)*min;u.y=G.dragon.y+Math.sin(a)*min}}
+}
+function update(dt){
+ G.t+=dt;
+ if(G.announceT>0){G.announceT-=dt;if(G.announceT<=0)document.getElementById('announce').style.opacity=0}
+ // wither shrink after start
+ if(G.t>CFG.witherStart)G.witherR=Math.max(CFG.coreR+220, CFG.mapR*(1-(G.t-CFG.witherStart)/(CFG.matchLen-CFG.witherStart)*0.95));
+ if(!G.unsealed&&G.t>=CFG.unsealAt)unseal();
+ const p=player();
+ // player input
+ if(p&&alive(p)){
+  const s=stats(p);let mx=0,my=0;
+  if(ctrlMode==='mouse'){if(keys['w'])my--;if(keys['s'])my++;if(keys['a'])mx--;if(keys['d'])mx++}
+  if(keys['arrowup'])my--;if(keys['arrowdown'])my++;if(keys['arrowleft'])mx--;if(keys['arrowright'])mx++;
+  if(p.stunT>0){mx=0;my=0} // スタン中は移動不可
+  if(G.qte&&(mx||my)){G.qte=null;feed('解除を中断した')}
+  if(mx||my){const l=Math.hypot(mx,my);p.x+=mx/l*s.spd*dt;p.y+=my/l*s.spd*dt;p.facing=Math.atan2(my,mx)}
+  p.moving=!!(mx||my)||!!p.dash;
+  if(ctrlMode==='mouse'){ // カメラ移動でも照準がずれないよう毎tick再計算
+   mouse.wx=mouse.x-cv.width/2+G.cam.x;mouse.wy=mouse.y-cv.height/2+G.cam.y;
+   if(mouse.down&&!G.qte)tryAttack(p,mouse.wx,mouse.wy);
+  } else if(keys['q']&&!G.qte){const a=kbAim(p);tryAttack(p,a.x,a.y)}
+  // QTEニードル更新
+  if(G.qte){const q=G.qte;
+   if(p.dead||q.dev.unlocked)G.qte=null;
+   else{q.needle+=q.dir*dt*1.5;
+    if(q.needle>1){q.needle=1;q.dir=-1}if(q.needle<0){q.needle=0;q.dir=1}}}
+  // 商人/装置ヒント
+  G.nearMerchant=G.merchants.some(m=>dist(p,m)<70);
+  G.nearDevice=G.gimmicks.find(g2=>!g2.unlocked&&dist(p,g2)<60)||null;
+  const hint=document.getElementById('shopHint');
+  if(G.qte)hint.innerHTML=`<b style="color:var(--cyan)">解除中</b> <kbd>F</kbd>で金ゾーンに針を止めろ(${G.qte.hits}/3) — 移動で中断`;
+  else if(G.nearDevice)hint.innerHTML=`<b style="color:var(--cyan)">封印装置</b> <kbd>F</kbd>解除ミニゲーム${p.cls==='thief'?' (盗賊: 成功域が広い)':''}`;
+  else if(G.nearMerchant)hint.innerHTML=
+   `<b style="color:var(--gold)">商人</b> <kbd>F</kbd>ポーション+1 (80G) / <kbd>G</kbd>砥石 攻+8% (${G.whetPrice}G) — 所持${Math.round(p.gold)}G`;
+  else hint.innerHTML='';
+  const c=G.chests.find(c=>!c.open&&dist(p,c)<40);
+  if(c){c.open=true;feed(`宝箱: +${c.gold}G(チーム分配)`);sfx('coin');
+   const mates=G.units.filter(a=>a.team===0&&alive(a));
+   mates.forEach(a=>gainXp(a,10,c.gold/mates.length))}
+ }
+ // units
+ G.units.forEach(u=>{
+  if(!alive(u))return;
+  u.atkT-=dt;u.s1T-=dt;u.s2T-=dt;u.s3T-=dt;u.s4T-=dt;u.stealth-=dt;u.slowT-=dt;u.buffT-=dt;u.revealT-=dt;
+  u.shieldT-=dt;u.markT-=dt;u.stunT-=dt;
+  u.mp=Math.min(100,u.mp+6*dt); // マナ回復6/s
+  if(u.poisonT>0){u.poisonT-=dt;u.hp-=9*dt; // 毒DoT
+   if(u.hp<=0&&!u.dead){u.dead=true;onUnitDeath(u.poisonSrc||null,u)}}
+  if(u.dash){const s=stats(u);u.x+=Math.cos(u.dash.dir)*620*dt;u.y+=Math.sin(u.dash.dir)*620*dt;
+   u.dash.t-=dt;if(u.dash.t<=0){ // dash impact
+    if(!u.dash.noHit)hostilesOf(u).forEach(h=>{if(dist(u,h)<60)damage(u,h,stats(u).atk*1.2)});
+    u.dash=null}}
+  if(!u.isPlayer){aiThink(u,dt);u.moving=u.ai.mv!=null||!!u.dash;
+   if(u.ai.mv!=null){const s=stats(u);u.x+=Math.cos(u.ai.mv)*s.spd*dt;u.y+=Math.sin(u.ai.mv)*s.spd*dt;u.facing=u.ai.mv}}
+  // slow zone check
+  u.slowT=Math.max(u.slowT, G.zones.some(z=>z.kind==='slow'&&z.tele<=0&&z.team!==u.team&&dist(u,z)<z.r)?.3:u.slowT);
+  // heal zone (聖域)
+  if(G.zones.some(z=>z.kind==='heal'&&z.team===u.team&&dist(u,z)<z.r))
+   u.hp=Math.min(u.maxHp,u.hp+22*dt);
+  // trap check
+  G.traps.forEach(tr=>{if(tr.team!==u.team&&dist(u,tr)<tr.r){tr.life=0;damage(tr.src,u,55);u.slowT=1.8;
+   if(tr.src.isPlayer||u.isPlayer)feed('罠が発動!')}});
+  // wither DoT
+  if(Math.hypot(u.x,u.y)>G.witherR)u.hp-=22*dt, u.hp<=0&&!u.dead&&(u.dead=true,onUnitDeath(null,u));
+  resolveTerrain(u);
+ });
+ // mobs
+ G.mobs.forEach(m=>{
+  if(m.hp<=0)return;
+  m.tAtk-=dt;
+  if(m.tele){m.tele.t-=dt;
+   if(m.tele.t<=0){G.units.forEach(u=>{if(alive(u)&&dist({x:m.tele.x,y:m.tele.y},u)<m.tele.r+u.r)damage(m,u,m.atk)});m.tele=null}}
+  const near=G.units.filter(u=>alive(u)&&u.stealth<=0&&(u.revealT>0||u.markT>0||(!bushOf(u)&&!smokeOf(u)&&!losBlocked(m,u)))&&dist(m,u)<140).sort((a,b)=>dist(m,a)-dist(m,b))[0];
+  if(near){m.tgt=near;
+   const d=dist(m,near);
+   if(d>34){const a2=ang(m,near);m.x+=Math.cos(a2)*m.spd*dt;m.y+=Math.sin(a2)*m.spd*dt;m.face=Math.cos(a2)<0?-1:1}
+   else if(m.tAtk<=0&&!m.tele){m.tAtk=1.6;m.tele={x:near.x,y:near.y,r:34,t:.5}}
+  } else if(dist(m,m.home)>30){const ah=ang(m,m.home);m.x+=Math.cos(ah)*m.spd*.6*dt;m.y+=Math.sin(ah)*m.spd*.6*dt;m.face=Math.cos(ah)<0?-1:1}
+ });
+ // projectiles
+ G.projs=G.projs.filter(pr=>{
+  pr.x+=pr.vx*dt;pr.y+=pr.vy*dt;pr.life-=dt;
+  if(pr.life<=0)return false;
+  let hit=false;
+  hostilesOf(pr.src).forEach(h=>{if(!hit&&dist(pr,h)<h.r+pr.r){damage(pr.src,h,pr.dmg);hit=true}});
+  if(!hit)G.trees.forEach(t=>{if(dist(pr,t)<t.r)hit=true});
+  if(!hit)G.walls.forEach(t=>{if(dist(pr,t)<t.r)hit=true});
+  return !hit;
+ });
+ // zones
+ G.zones=G.zones.filter(z=>{
+  if(z.tele>0){z.tele-=dt;
+   if(z.tele<=0&&z.kind==='nuke'){
+    // 竜のnuke(team=-1)は全ユニット、プレイヤー職のnukeは敵対対象のみ+モブ+竜
+    G.units.forEach(u=>{if(alive(u)&&dist(u,z)<z.r+u.r&&(z.team===-1||z.team===undefined||u.team!==z.team))
+     damage(z.src,u,z.dmg)});
+    if(z.team>=0){
+     G.mobs.forEach(m=>{if(m.hp>0&&dist(m,z)<z.r+m.r)damage(z.src,m,z.dmg)});
+     if(G.dragon&&G.dragon.hp>0&&dist(G.dragon,z)<z.r+G.dragon.r)damage(z.src,G.dragon,z.dmg);
+    }
+    return false}
+   return true}
+  z.life-=dt;return z.life>0});
+ G.traps=G.traps.filter(t=>t.life>0&&(t.life-=dt,t.life>0));
+ G.walls=G.walls.filter(w=>(w.life-=dt)>0);
+ G.floats.forEach(f=>{f.t-=dt;f.y-=26*dt});G.floats=G.floats.filter(f=>f.t>0);
+ G.parts.forEach(pp=>{pp.x+=pp.vx*dt;pp.y+=pp.vy*dt;pp.t-=dt});G.parts=G.parts.filter(pp=>pp.t>0);
+ G.swings.forEach(w=>w.t-=dt);G.swings=G.swings.filter(w=>w.t>0);
+ updateDragon(dt);
+ // team wipe / player-team end check
+ const teamsAlive=new Set(G.units.filter(alive).map(u=>u.team));
+ if(teamsAlive.size===0&&!G.over)endMatch(false,'全チーム全滅 — 森が勝った');
+ if(G.t>=CFG.matchLen&&!G.over)endMatch(false,'時間切れ — 森が全てを呑んだ');
+}
+function endMatch(dragonKilled,reason){
+ G.over=true;
+ const total=G.dragonDmg.reduce((a,b)=>a+b,0)||1;
+ const rows=[0,1,2,3].map(t=>({t,dmg:G.dragonDmg[t],share:G.dragonDmg[t]/total}))
+  .sort((a,b)=>b.dmg-a.dmg);
+ const myShare=G.dragonDmg[0]/total;
+ const rp=Math.round(myShare*1000);
+ const html=`<h2>${dragonKilled?'竜は倒れた':'マッチ終了'}</h2>
+  ${reason?`<p>${reason}</p>`:''}
+  <table><tr><th>チーム</th><th>竜与ダメ</th><th>貢献率</th><th>RP</th></tr>
+  ${rows.map(r=>`<tr style="${r.t===0?'color:var(--gold)':''}"><td>${teamName(r.t)}</td>
+   <td>${Math.round(r.dmg)}</td><td>${Math.round(r.share*100)}%</td><td>+${Math.round(r.share*1000)}</td></tr>`).join('')}
+  </table>
+  <p>あなたのチーム: <b style="color:var(--gold)">+${rp} RP</b>(チーム全員同値 — 内訳は表示しない設計)</p>
+  <button class="btn" onclick="location.reload()">もう一度</button>`;
+ document.getElementById('resultPanel').innerHTML=html;
+ document.getElementById('resultPanel').classList.remove('hidden');
+ document.getElementById('overlay').classList.remove('hidden');
+ document.getElementById('startPanel').classList.add('hidden');
+ if(window.reportResult)try{reportResult(dragonKilled&&rows[0].t===0,rp)}catch(e){}
+}
+/* ================= procedural pixel art (ART_PIPELINE準拠の仮アート) ================= */
+const ART=(()=>{
+ function mk(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c}
+ function up(c,s){const o=mk(c.width*s,c.height*s);const g=o.getContext('2d');
+  g.imageSmoothingEnabled=false;g.drawImage(c,0,0,o.width,o.height);return o}
+ function shade(hex,f){const n=parseInt(hex.slice(1),16);
+  const r=Math.min(255,Math.round(((n>>16)&255)*f)),g2=Math.min(255,Math.round(((n>>8)&255)*f)),b=Math.min(255,Math.round((n&255)*f));
+  return `rgb(${r},${g2},${b})`}
+ function outline(c){ // 不透明ピクセルの周囲に1pxダークアウトライン
+  const w=c.width,h=c.height,g=c.getContext('2d');
+  const src=g.getImageData(0,0,w,h).data, out=g.getImageData(0,0,w,h), od=out.data;
+  const at=(x,y)=>x>=0&&y>=0&&x<w&&y<h&&src[(y*w+x)*4+3]>40;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;
+   if(src[i+3]<=40&&(at(x-1,y)||at(x+1,y)||at(x,y-1)||at(x,y+1))){od[i]=12;od[i+1]=18;od[i+2]=14;od[i+3]=255}}
+  g.putImageData(out,0,0)}
+ function cir(g,x,y,r){g.beginPath();g.arc(x,y,r,0,7);g.fill()}
+ function humanoid(cls,T,dir){
+  const c=mk(18,20),g=c.getContext('2d');
+  const t=shade(T,.6), side=dir==='side', upd=dir==='up';
+  g.fillStyle='#2a2622';g.fillRect(6,16,2,3);g.fillRect(10,16,2,3); // legs
+  g.fillStyle=T;g.fillRect(5,9,8,7);g.fillStyle=t;g.fillRect(5,13,8,3); // tunic
+  if(cls==='warrior'){
+   g.fillStyle='#9aa8b0';g.fillRect(5,9,8,3); // chest plate
+   g.fillStyle='#9aa8b0';g.fillRect(5,2,8,6);g.fillStyle='#6a7880';g.fillRect(5,6,8,2); // helmet
+   g.fillStyle='#e0b64f';g.fillRect(5,2,8,1); // gold trim
+   if(!upd){g.fillStyle='#1a1512';
+    if(side)g.fillRect(11,4,2,2);else{g.fillRect(6,4,2,2);g.fillRect(10,4,2,2)}} // visor
+   const sx=side?12:2; g.fillStyle='#7a8a94';g.fillRect(sx,8,4,7); // shield
+   g.fillStyle='#e0b64f';g.fillRect(sx+1,10,2,2);
+   g.fillStyle='#c8d4da';g.fillRect(side?1:15,5,1,8);g.fillStyle='#8a6a42';g.fillRect(side?0:14,12,3,1); // sword
+  }
+  if(cls==='mage'){
+   g.fillStyle='#7a5f9a';g.fillRect(5,9,8,8);g.fillStyle='#5a4374';g.fillRect(5,14,8,3); // robe
+   g.fillStyle=T;g.fillRect(5,9,8,1); // team sash
+   g.fillStyle='#7a5f9a';g.fillRect(6,1,6,2);g.fillRect(5,3,8,5);g.fillRect(8,0,2,1); // hood
+   if(!upd){g.fillStyle='#241a30';
+    if(side)g.fillRect(10,4,3,3);else g.fillRect(6,4,6,3); // face shadow
+    g.fillStyle='#5bc8b0';
+    if(side)g.fillRect(11,5,1,1);else{g.fillRect(7,5,1,1);g.fillRect(10,5,1,1)}} // glow eyes
+   g.fillStyle='#8a6a42';g.fillRect(side?2:15,2,1,13); // staff
+   g.fillStyle='#5bc8b0';g.fillRect(side?1:14,1,3,3);g.fillStyle='#bfeee2';g.fillRect(side?2:15,2,1,1);
+  }
+  if(cls==='thief'){
+   g.fillStyle='#3a3430';g.fillRect(5,9,8,7);g.fillStyle=T;g.fillRect(5,9,8,2); // leather+team scarf
+   g.fillStyle='#2e2a26';g.fillRect(5,2,8,6);g.fillRect(6,1,6,1); // hood
+   if(!upd){g.fillStyle='#15120f';
+    if(side)g.fillRect(10,4,3,3);else g.fillRect(6,4,6,3);
+    g.fillStyle='#e0b64f';
+    if(side)g.fillRect(11,5,1,1);else{g.fillRect(7,5,1,1);g.fillRect(10,5,1,1)}}
+   g.fillStyle='#c8d4da';g.fillRect(3,10,1,4);if(!side)g.fillRect(14,10,1,4); // daggers
+   g.fillStyle='#e0b64f';g.fillRect(4,13,1,1); // pouch glint
+  }
+  if(cls==='priest'){
+   g.fillStyle='#e8e2d2';g.fillRect(5,9,8,8);g.fillStyle='#cfc4a8';g.fillRect(5,14,8,3); // ivory vestment
+   g.fillStyle='#e0b64f';g.fillRect(5,11,8,1); // gold band
+   g.fillStyle=T;g.fillRect(5,9,8,1); // team stripe
+   g.fillStyle='#e8e2d2';g.fillRect(5,2,8,6);g.fillRect(6,1,6,1); // ivory hood
+   g.fillStyle='#e0b64f';g.fillRect(6,2,6,1);
+   if(!upd){g.fillStyle='#8a7a5a';
+    if(side)g.fillRect(10,4,3,3);else g.fillRect(6,4,6,3);
+    g.fillStyle='#ffd97a';
+    if(side)g.fillRect(11,5,1,1);else{g.fillRect(7,5,1,1);g.fillRect(10,5,1,1)}}
+   g.fillStyle='#8a6a42';g.fillRect(side?2:15,8,1,4); // censer chain
+   g.fillStyle='#ffd97a';g.fillRect(side?1:14,12,3,3);g.fillStyle='#e0b64f';g.fillRect(side?1:14,12,3,1); // lantern-censer
+  }
+  if(cls==='ranger'){
+   g.fillStyle='#3f6a3a';g.fillRect(5,9,8,7);g.fillStyle='#2e5230';g.fillRect(5,13,8,3); // leaf cloak
+   g.fillStyle=T;g.fillRect(5,9,8,1);
+   g.fillStyle='#2e5230';g.fillRect(5,2,8,6);g.fillRect(6,1,6,1); // hood
+   if(!upd){g.fillStyle='#15120f';
+    if(side)g.fillRect(10,4,3,3);else g.fillRect(6,4,6,3);
+    g.fillStyle='#e0b64f';
+    if(side)g.fillRect(11,5,1,1);else{g.fillRect(7,5,1,1);g.fillRect(10,5,1,1)}}
+   const bx=side?14:15;
+   g.fillStyle='#8a6a42';g.fillRect(bx,3,1,11); // bow limb
+   g.fillStyle='#bfeee2';g.fillRect(bx+1,4,1,9); // string
+   g.fillStyle='#5a4a32';g.fillRect(3,9,2,4); // quiver
+   g.fillStyle='#5bc8b0';g.fillRect(3,8,2,1); // arrow tips
+  }
+  outline(c);return up(c,2)}
+ function wolf(){const c=mk(22,14),g=c.getContext('2d');
+  g.fillStyle='rgba(122,95,154,.7)';g.fillRect(0,6,4,2);g.fillRect(1,5,2,1); // mist tail
+  g.fillStyle='#665a86';g.fillRect(4,5,12,5);g.fillStyle='#7a6f9a';g.fillRect(4,5,12,2); // body
+  g.fillStyle='#665a86';g.fillRect(14,3,5,5);g.fillRect(15,1,2,2); // head+ear
+  g.fillStyle='#5bc8b0';g.fillRect(17,5,1,1); // glow eye
+  g.fillStyle='#2a2436';g.fillRect(5,10,2,3);g.fillRect(9,10,2,3);g.fillRect(13,10,2,3); // legs
+  outline(c);return up(c,2)}
+ function tree(seed){const c=mk(24,24),g=c.getContext('2d');
+  const P=[[12,13,8],[7,9,5],[16,9,5],[9,16,5],[15,16,5],[12,7,4]];
+  const off=i=>[((seed*7+i*3)%5)-2,((seed*11+i*5)%5)-2];
+  g.fillStyle='#142c1f';P.forEach((p,i)=>{const o=off(i);cir(g,p[0]+o[0],p[1]+o[1],p[2]+1)});
+  g.fillStyle='#1f4a33';P.forEach((p,i)=>{const o=off(i);cir(g,p[0]+o[0],p[1]+o[1],p[2])});
+  g.fillStyle='#2c6344';P.slice(0,3).forEach((p,i)=>{const o=off(i);cir(g,p[0]+o[0]-1,p[1]+o[1]-2,p[2]*.55)}); // top-left light
+  g.fillStyle='#3e7d55';P.slice(0,2).forEach((p,i)=>{const o=off(i);cir(g,p[0]+o[0]-2,p[1]+o[1]-3,1.6)});
+  outline(c);return up(c,3)} // シアンの実は茂み専用の記号(木には付けない)
+ function bush(seed){const c=mk(20,14),g=c.getContext('2d');
+  const P=[[5,8,4],[10,7,5],[15,8,4],[8,10,4],[12,10,4]];
+  g.fillStyle='#215233';P.forEach(p=>cir(g,p[0],p[1],p[2]+.8));
+  g.fillStyle='#2f6e44';P.forEach(p=>cir(g,p[0],p[1],p[2]));
+  g.fillStyle='#43905a';P.slice(0,3).forEach(p=>cir(g,p[0]-1,p[1]-2,p[2]*.5));
+  g.fillStyle='#5bc8b0'; // 生物発光の実 = 「隠れられる茂み」の記号
+  (seed?[[6,6],[14,6]]:[[5,7],[11,5],[15,8]]).forEach(p=>g.fillRect(p[0],p[1],1,1));
+  outline(c);return up(c,3)}
+ function chest(open){const c=mk(14,12),g=c.getContext('2d');
+  if(!open){g.fillStyle='#7a5230';g.fillRect(1,3,12,8);g.fillStyle='#8f6238';g.fillRect(1,3,12,3);
+   g.fillStyle='#5a5560';g.fillRect(1,6,12,1);g.fillRect(3,3,1,8);g.fillRect(10,3,1,8);
+   g.fillStyle='#e0b64f';g.fillRect(6,6,2,3)}
+  else{g.fillStyle='#8f6238';g.fillRect(1,1,12,3);g.fillStyle='#7a5230';g.fillRect(1,6,12,5);
+   g.fillStyle='#4a3420';g.fillRect(2,7,10,3);g.fillStyle='#ffd97a';g.fillRect(4,7,6,2)}
+  outline(c);return up(c,2)}
+ function trapS(){const c=mk(12,12),g=c.getContext('2d');
+  g.fillStyle='#2c5a38';[[3,5],[6,3],[9,6],[5,8],[8,9],[4,3]].forEach(p=>g.fillRect(p[0],p[1],3,2));
+  g.fillStyle='#3f7a4a';[[4,4],[7,6],[6,9]].forEach(p=>g.fillRect(p[0],p[1],2,1));
+  g.fillStyle='#e0b64f';g.fillRect(6,6,1,1); // 針金の光
+  return up(c,2)} // 罠は意図的にアウトラインなし(目立たせない)
+ function merchantS(){const c=mk(26,22),g=c.getContext('2d');
+  g.fillStyle='#5a4a32';g.fillRect(1,8,24,3);g.fillRect(2,11,2,9);g.fillRect(22,11,2,9); // stall
+  g.fillStyle='#7a5f9a';g.fillRect(3,1,20,4); // violet awning
+  g.fillStyle='#9a7fc0';for(let i=0;i<5;i++)g.fillRect(3+i*4,5,2,1);
+  g.fillStyle='#2e2a26';g.fillRect(10,3,6,5); // hooded merchant
+  g.fillStyle='#ffd97a';g.fillRect(12,5,1,1);g.fillRect(14,5,1,1); // eyes
+  g.fillStyle='#e0b64f';g.fillRect(5,9,2,1);g.fillRect(10,9,3,1);g.fillRect(18,9,2,1); // wares
+  g.fillStyle='#ffd97a';g.fillRect(24,2,1,3); // lantern
+  outline(c);return up(c,3)}
+ function dragonS(){const c=mk(44,44),g=c.getContext('2d');
+  g.strokeStyle='#2f6a4c';g.lineWidth=9;g.beginPath();g.arc(22,24,13,-2.4,2.9);g.stroke(); // coiled body
+  g.strokeStyle='#3b7f5c';g.lineWidth=5;g.beginPath();g.arc(22,24,13,-2.2,2.7);g.stroke();
+  g.fillStyle='#5bc8b0';g.fillRect(6,31,3,3); // crystal tail tip
+  g.fillStyle='rgba(122,95,154,.85)'; // folded wings
+  g.beginPath();g.moveTo(8,10);g.lineTo(20,17);g.lineTo(5,21);g.closePath();g.fill();
+  g.beginPath();g.moveTo(36,10);g.lineTo(24,17);g.lineTo(39,21);g.closePath();g.fill();
+  g.fillStyle='#2f6a4c';g.fillRect(17,4,10,9);g.fillStyle='#3b7f5c';g.fillRect(18,5,8,4); // head
+  g.fillStyle='#e8e2d2';g.fillRect(15,2,3,4);g.fillRect(26,2,3,4); // horns
+  g.fillStyle='#5bc8b0';g.fillRect(19,8,2,2);g.fillRect(23,8,2,2); // eyes
+  g.fillStyle='#4a8f5f';g.fillRect(12,27,3,2);g.fillRect(28,28,3,2);g.fillRect(31,15,2,2); // moss
+  const rg=g.createRadialGradient(22,23,1,22,23,6);
+  rg.addColorStop(0,'#ffe9a8');rg.addColorStop(.5,'#e0b64f');rg.addColorStop(1,'rgba(91,200,176,0)');
+  g.fillStyle=rg;cir(g,22,23,6); // chest core
+  outline(c);return up(c,3)}
+ const uc={};
+ return {
+  unit(cls,team,dir){const k=cls+team+dir;return uc[k]||(uc[k]=humanoid(cls,CFG.teamColors[team],dir))},
+  wolf:wolf(),tree:[tree(0),tree(1),tree(2)],bush:[bush(0),bush(1)],
+  chestC:chest(false),chestO:chest(true),trap:trapS(),dragon:dragonS(),merchant:merchantS()};
+})();
+function sdir(u){const c=Math.cos(u.facing),s=Math.sin(u.facing);
+ if(Math.abs(c)>Math.abs(s))return{d:'side',fl:c<0};
+ return{d:s>0?'down':'up',fl:false}}
+function hexPath(g,x,y,r,rot){g.beginPath();
+ for(let k=0;k<6;k++){const a=rot+k*Math.PI/3;
+  k?g.lineTo(x+Math.cos(a)*r,y+Math.sin(a)*r):g.moveTo(x+Math.cos(a)*r,y+Math.sin(a)*r)}
+ g.closePath()}
+/* ================= render ================= */
+const cv=document.getElementById('game'),cx=cv.getContext('2d');
+const mm=document.getElementById('minimap'),mx2=mm.getContext('2d');
+function resize(){cv.width=innerWidth;cv.height=innerHeight}
+addEventListener('resize',resize);resize();
+function camTarget(){
+ const p=player();
+ if(p&&!p.dead)return p;
+ // 観戦: Tabで切替(自チーム→他チーム→竜)
+ const pool=[...G.units.filter(alive).sort((a,b)=>a.team-b.team)];
+ if(G.dragon&&G.dragon.hp>0)pool.push(G.dragon);
+ if(!pool.length)return {x:0,y:0};
+ return pool[(G.specIdx||0)%pool.length];
+}
+function render(){
+ const p=camTarget();
+ G.cam.x+=(p.x-G.cam.x)*.1;G.cam.y+=(p.y-G.cam.y)*.1;
+ cx.imageSmoothingEnabled=false;
+ cx.fillStyle='#101c17';cx.fillRect(0,0,cv.width,cv.height);
+ cx.save();cx.translate(cv.width/2-G.cam.x,cv.height/2-G.cam.y);
+ const vw=cv.width/2+80,vh=cv.height/2+80; // 視界カリング用
+ // bands
+ for(const[r,c]of[[CFG.mapR,'#15251e'],[CFG.mapR*.66,'#182a21'],[CFG.mapR*.38,'#1b2f25'],[CFG.coreR,'#232a1c']]){
+  cx.beginPath();cx.arc(0,0,r,0,7);cx.fillStyle=c;cx.fill()}
+ // 地面の斑
+ G.dapples.forEach(d=>{if(Math.abs(d.x-G.cam.x)>vw||Math.abs(d.y-G.cam.y)>vh)return;
+  cx.globalAlpha=d.a;cx.fillStyle=d.c;cx.beginPath();cx.arc(d.x,d.y,d.r,0,7);cx.fill()});
+ cx.globalAlpha=1;
+ // 中心の封印紋様(回転する六角)
+ if(Math.hypot(G.cam.x,G.cam.y)<CFG.coreR+Math.max(vw,vh)){
+  for(let i=0;i<3;i++){hexPath(cx,0,0,CFG.coreR*.35+i*CFG.coreR*.24,G.t*.1*(i%2?-1:1));
+   cx.strokeStyle=`rgba(224,182,79,${.16-i*.04})`;cx.lineWidth=3;cx.stroke()}
+  cx.lineWidth=1}
+ // wither ring
+ cx.beginPath();cx.arc(0,0,CFG.mapR+400,0,7);cx.arc(0,0,G.witherR,0,7,true);
+ cx.fillStyle='rgba(60,45,75,.55)';cx.fill();
+ cx.beginPath();cx.arc(0,0,G.witherR,0,7);cx.strokeStyle='#7a5f9a';cx.lineWidth=3;cx.stroke();
+ // chests, traps
+ G.chests.forEach(c=>{
+  if(c.open){cx.globalAlpha=.55;cx.drawImage(ART.chestO,c.x-14,c.y-12);cx.globalAlpha=1;return}
+  cx.drawImage(ART.chestC,c.x-14,c.y-12)});
+ // 封印装置
+ G.gimmicks.forEach(gm=>{
+  if(Math.abs(gm.x-G.cam.x)>vw||Math.abs(gm.y-G.cam.y)>vh)return;
+  cx.fillStyle='#2a3630';cx.beginPath();cx.arc(gm.x,gm.y,15,0,7);cx.fill();
+  cx.strokeStyle='#0c120e';cx.lineWidth=2;cx.stroke();cx.lineWidth=1;
+  if(!gm.unlocked){
+   hexPath(cx,gm.x,gm.y,22,G.t*.8);cx.strokeStyle='rgba(91,200,176,.85)';cx.stroke();
+   hexPath(cx,gm.x,gm.y,15,-G.t*1.1);cx.strokeStyle='rgba(91,200,176,.4)';cx.stroke();
+   cx.fillStyle='#5bc8b0';cx.fillRect(gm.x-2,gm.y-2,4,4);
+  } else {cx.fillStyle='rgba(91,200,176,.3)';cx.fillRect(gm.x-2,gm.y-2,4,4)}
+ });
+ // 魔氷壁(視線・移動・弾を遮る)
+ G.walls.forEach(w=>{
+  cx.globalAlpha=Math.min(1,w.life);
+  cx.fillStyle='rgba(120,190,210,.55)';cx.beginPath();cx.arc(w.x,w.y,w.r,0,7);cx.fill();
+  cx.strokeStyle='#bfeee2';cx.lineWidth=2;cx.stroke();cx.lineWidth=1;
+  cx.fillStyle='#e8f7f1';cx.fillRect(w.x-3,w.y-8,6,16);
+  cx.globalAlpha=1});
+ // 商人(ランタンの光つき)
+ G.merchants.forEach(m=>{
+  if(Math.abs(m.x-G.cam.x)>vw||Math.abs(m.y-G.cam.y)>vh)return;
+  const lg=cx.createRadialGradient(m.x,m.y,4,m.x,m.y,56);
+  lg.addColorStop(0,'rgba(255,217,122,.22)');lg.addColorStop(1,'rgba(0,0,0,0)');
+  cx.fillStyle=lg;cx.beginPath();cx.arc(m.x,m.y,56,0,7);cx.fill();
+  cx.drawImage(ART.merchant,m.x-39,m.y-40)});
+ G.traps.forEach(t=>{
+  if(t.team===0){cx.drawImage(ART.trap,t.x-12,t.y-12);
+   cx.strokeStyle='rgba(224,182,79,.5)';cx.beginPath();cx.arc(t.x,t.y,t.r,0,7);cx.stroke();return}
+  // thief passive: allied thief within 140px reveals enemy traps
+  const seen=G.units.some(u=>u.team===0&&!u.dead&&u.cls==='thief'&&dist(u,t)<140);
+  if(seen){cx.drawImage(ART.trap,t.x-12,t.y-12);
+   cx.strokeStyle='rgba(195,61,46,.8)';cx.setLineDash([4,4]);
+   cx.beginPath();cx.arc(t.x,t.y,t.r,0,7);cx.stroke();cx.setLineDash([])}});
+ // zones (telegraphs)
+ G.zones.forEach(z=>{
+  cx.beginPath();cx.arc(z.x,z.y,z.r,0,7);
+  if(z.kind==='nuke'){cx.fillStyle=`rgba(195,61,46,${.25+.35*(1-z.tele/.8)})`;cx.fill();
+   cx.strokeStyle='#c33d2e';cx.stroke()}
+  else if(z.kind==='heal'){cx.fillStyle='rgba(224,182,79,.14)';cx.fill();
+   cx.strokeStyle='rgba(255,217,122,.55)';cx.stroke()}
+  else if(z.kind==='smoke'){cx.fillStyle='rgba(143,165,152,.3)';cx.fill();
+   cx.strokeStyle='rgba(143,165,152,.5)';cx.setLineDash([6,4]);cx.stroke();cx.setLineDash([])}
+  else{cx.fillStyle='rgba(91,200,176,.18)';cx.fill();cx.strokeStyle='rgba(91,200,176,.6)';cx.stroke()}
+ });
+ G.mobs.forEach(m=>{if(m.hp<=0)return;
+  if(Math.abs(m.x-G.cam.x)>vw||Math.abs(m.y-G.cam.y)>vh)return;
+  if(m.tele){cx.beginPath();cx.arc(m.tele.x,m.tele.y,m.tele.r,0,7);
+   cx.fillStyle=`rgba(195,61,46,${.5*(1-m.tele.t/.5)})`;cx.fill()}
+  cx.fillStyle='rgba(8,12,10,.35)';cx.beginPath();cx.ellipse(m.x,m.y+9,11,4,0,0,7);cx.fill();
+  cx.save();cx.translate(m.x,m.y);if(m.face<0)cx.scale(-1,1);
+  cx.drawImage(ART.wolf,-22,-16);cx.restore();
+  cx.fillStyle='#c33d2e';cx.fillRect(m.x-14,m.y-24,28*clamp(m.hp/m.maxHp,0,1),3)});
+ // dragon
+ if(G.dragon&&G.dragon.hp>0){const D=G.dragon;
+  const pulse=.18+.07*Math.sin(G.t*3)+D.phase*.07;
+  const rg=cx.createRadialGradient(D.x,D.y,10,D.x,D.y,115);
+  rg.addColorStop(0,`rgba(255,225,150,${pulse})`);rg.addColorStop(.6,`rgba(91,200,176,${pulse*.5})`);
+  rg.addColorStop(1,'rgba(0,0,0,0)');
+  cx.fillStyle=rg;cx.beginPath();cx.arc(D.x,D.y,115,0,7);cx.fill();
+  const br=1+Math.sin(G.t*2)*.02+D.phase*.015;
+  cx.save();cx.translate(D.x,D.y);cx.scale(br,br);
+  cx.drawImage(ART.dragon,-70,-70,140,140);cx.restore();
+  if(D.phase>0){cx.strokeStyle=`rgba(195,61,46,${.25+D.phase*.15})`;cx.lineWidth=3;
+   cx.beginPath();cx.arc(D.x,D.y,D.r+8+Math.sin(G.t*5)*3,0,7);cx.stroke();cx.lineWidth=1}
+  cx.fillStyle='#0a0f0d';cx.fillRect(D.x-70,D.y-D.r-18,140,8);
+  cx.fillStyle='#c33d2e';cx.fillRect(D.x-70,D.y-D.r-18,140*D.hp/D.maxHp,8)}
+ else if(!G.unsealed){
+  hexPath(cx,0,0,74,G.t*.4);cx.strokeStyle='rgba(224,182,79,.85)';cx.lineWidth=2;cx.stroke();
+  hexPath(cx,0,0,56,-G.t*.6);cx.strokeStyle='rgba(91,200,176,.5)';cx.stroke();cx.lineWidth=1;
+  cx.fillStyle='#e0b64f';cx.font='13px sans-serif';cx.textAlign='center';
+  cx.fillText(`封印 ${Math.max(0,Math.ceil(CFG.unsealAt-G.t))}s`,0,4)}
+ G.trees.forEach(t=>{
+  if(Math.abs(t.x-G.cam.x)>vw+60||Math.abs(t.y-G.cam.y)>vh+60)return;
+  const D2=t.r*2.6;
+  cx.fillStyle='rgba(8,12,10,.3)';cx.beginPath();cx.ellipse(t.x,t.y+t.r*.45,t.r*.85,t.r*.4,0,0,7);cx.fill();
+  cx.save();cx.translate(t.x,t.y);if(t.fl)cx.scale(-1,1);
+  cx.drawImage(ART.tree[t.v],-D2/2,-D2*.56,D2,D2);cx.restore()});
+ G.bushes.forEach(b=>{
+  if(Math.abs(b.x-G.cam.x)>vw||Math.abs(b.y-G.cam.y)>vh)return;
+  const W=b.r*2.3,H=b.r*1.7;
+  cx.drawImage(ART.bush[b.v],b.x-W/2,b.y-H*.62,W,H)});
+ // projectiles (火球: グロー+トレイル / 矢: シアントレーサー)
+ G.projs.forEach(pr=>{
+  if(pr.src&&pr.src.cls==='ranger'){ // arrow
+   const L=pr.snipe?22:14,vx=pr.vx,vy=pr.vy,vl=Math.hypot(vx,vy)||1;
+   cx.strokeStyle='rgba(91,200,176,.5)';cx.lineWidth=pr.snipe?3:2;
+   cx.beginPath();cx.moveTo(pr.x-vx/vl*L*1.8,pr.y-vy/vl*L*1.8);cx.lineTo(pr.x,pr.y);cx.stroke();
+   cx.strokeStyle='#e8f7f1';cx.lineWidth=2;
+   cx.beginPath();cx.moveTo(pr.x-vx/vl*L,pr.y-vy/vl*L);cx.lineTo(pr.x,pr.y);cx.stroke();cx.lineWidth=1;
+   return}
+  cx.globalAlpha=.25;cx.fillStyle='#b78ae0';
+  cx.beginPath();cx.arc(pr.x-pr.vx*.02,pr.y-pr.vy*.02,10,0,7);cx.fill();
+  cx.beginPath();cx.arc(pr.x-pr.vx*.045,pr.y-pr.vy*.045,7,0,7);cx.fill();
+  cx.globalAlpha=1;
+  cx.beginPath();cx.arc(pr.x,pr.y,6,0,7);cx.fillStyle='#b78ae0';cx.fill();
+  cx.beginPath();cx.arc(pr.x,pr.y,3,0,7);cx.fillStyle='#efe2ff';cx.fill()});
+ // units
+ G.units.forEach(u=>{
+  if(u.dead)return;
+  if(u.stealth>0&&u.team!==0)return; // hidden from view (demo: player-team perspective)
+  if(u.team!==0&&!seenBy(0,u))return; // ブッシュ内の敵は非表示
+  const inBush=!!bushOf(u);
+  cx.fillStyle='rgba(8,12,10,.4)';cx.beginPath();cx.ellipse(u.x,u.y+13,10,4,0,0,7);cx.fill();
+  if(u.isPlayer){cx.strokeStyle='rgba(232,226,210,.9)';cx.lineWidth=2;
+   cx.beginPath();cx.ellipse(u.x,u.y+13,12,5,0,0,7);cx.stroke();cx.lineWidth=1}
+  cx.globalAlpha=u.stealth>0?.45:inBush?.6:1;
+  const dd=sdir(u), sp2=ART.unit(u.cls,u.team,dd.d);
+  const bob=u.moving?Math.sin(G.t*11+(u.x+u.y)*.05)*1.5:0;
+  cx.save();cx.translate(u.x,u.y+bob);if(dd.fl)cx.scale(-1,1);
+  cx.drawImage(sp2,-18,-27);cx.restore();
+  if(u.buffT>0){cx.strokeStyle='rgba(224,182,79,.45)';
+   cx.beginPath();cx.arc(u.x,u.y,u.r+4,0,7);cx.stroke()}
+  cx.globalAlpha=1;
+  if(inBush&&u.revealT>0){ // 露見中インジケータ
+   cx.setLineDash([3,3]);cx.strokeStyle='#e0b64f';cx.lineWidth=2;
+   cx.beginPath();cx.arc(u.x,u.y,u.r+6,0,7);cx.stroke();cx.setLineDash([]);cx.lineWidth=1}
+  if(u.isPlayer){ // 近くに敵がいるのに全敵チームから隠れている時だけ水色リング
+   const near=G.units.filter(x=>alive(x)&&x.team!==0&&dist(x,u)<780);
+   const ft=[...new Set(near.map(x=>x.team))];
+   if(ft.length&&!ft.some(t=>seenBy(t,u))){
+    cx.setLineDash([4,4]);cx.strokeStyle='#5bc8b0';cx.lineWidth=2;
+    cx.beginPath();cx.arc(u.x,u.y,u.r+7,0,7);cx.stroke();cx.setLineDash([]);cx.lineWidth=1}}
+  cx.fillStyle='#0a0f0d';cx.fillRect(u.x-16,u.y-32,32,4);
+  cx.fillStyle=u.team===0?'#4caf7d':'#c33d2e';cx.fillRect(u.x-16,u.y-32,32*clamp(u.hp/u.maxHp,0,1),4);
+ });
+ // QTEバー(解除ミニゲーム)
+ if(G.qte){const pq=player(),q=G.qte,w=120,x0=pq.x-60,y0=pq.y-56;
+  cx.fillStyle='rgba(10,15,13,.88)';cx.fillRect(x0-5,y0-7,w+10,20);
+  cx.strokeStyle='#5bc8b0';cx.strokeRect(x0-5,y0-7,w+10,20);
+  cx.fillStyle='#16241f';cx.fillRect(x0,y0-2,w,10);
+  cx.fillStyle='rgba(224,182,79,.85)';cx.fillRect(x0+(q.zoneC-q.zoneW/2)*w,y0-2,q.zoneW*w,10);
+  cx.fillStyle='#e8f7f1';cx.fillRect(x0+q.needle*w-1,y0-5,2,16);
+ }
+ // particles
+ G.parts.forEach(pp=>{const f=Math.max(0,pp.t/pp.T);
+  if(pp.kind==='ring'){cx.globalAlpha=f;cx.strokeStyle=pp.color;cx.lineWidth=2;
+   cx.beginPath();cx.arc(pp.x,pp.y,(1-f)*pp.r+6,0,7);cx.stroke();cx.lineWidth=1}
+  else{cx.globalAlpha=f;cx.fillStyle=pp.color;cx.fillRect(pp.x-pp.r/2,pp.y-pp.r/2,pp.r,pp.r)}});
+ cx.globalAlpha=1;
+ // melee swing arcs
+ G.swings.forEach(w=>{cx.globalAlpha=w.t/.16;cx.strokeStyle=w.team===0?'#efe7d5':'#e0a0a0';
+  cx.lineWidth=4;cx.beginPath();cx.arc(w.x,w.y,w.r*.9,w.dir-1.0,w.dir+1.0);cx.stroke();cx.globalAlpha=1;cx.lineWidth=1});
+ // floating combat text
+ cx.font='bold 13px sans-serif';cx.textAlign='center';
+ G.floats.forEach(f=>{cx.globalAlpha=Math.min(1,f.t/.9+.2);cx.fillStyle=f.color;
+  cx.fillText(f.txt,f.x,f.y);cx.globalAlpha=1});
+ cx.restore();
+ renderHud(p);
+}
+function renderHud(p){
+ document.getElementById('timer').textContent=`${Math.floor(G.t/60)}:${String(Math.floor(G.t%60)).padStart(2,'0')}`;
+ document.getElementById('phaseTxt').textContent=G.unsealed?'竜との戦い':G.t>CFG.witherStart?'森が枯れ始めた':'探索と成長';
+ const teams=new Set(G.units.filter(alive).map(u=>u.team));
+ document.getElementById('aliveTxt').textContent=`残り${teams.size}チーム`;
+ // ドラゴン戦のライブ貢献率(RP=チーム与ダメ割合、をプレイ中に可視化)
+ const total=G.dragonDmg.reduce((a,b)=>a+b,0);
+ document.getElementById('contrib').innerHTML=(G.unsealed&&total>0)?
+  [0,1,2,3].map(t=>`<span style="color:${t===0?'var(--gold)':'var(--ivory)'}">`+
+   `<b style="color:${CFG.teamColors[t]}">●</b>${['あなた','紅蓮','蒼流','翠風'][t]} `+
+   `${Math.round(G.dragonDmg[t]/total*100)}%</span>`).join(''):'';
+ // 観戦表示
+ const plDead=player()&&player().dead;
+ const ct=plDead?camTarget():null;
+ document.getElementById('specTxt').textContent=
+  plDead&&ct?`観戦中: ${ct.isDragon?'竜':teamName(ct.team)+'の'+CLASSES[ct.cls].jp} — Tabで切替`:'';
+ if(plDead)document.getElementById('shopHint').innerHTML='';
+ const pl=player();
+ if(pl){
+  const s=stats(pl);
+  document.getElementById('clsName').textContent=CLASSES[pl.cls].glyph+' '+CLASSES[pl.cls].jp;
+  document.getElementById('lv').textContent=pl.lv;
+  document.getElementById('gold').textContent=Math.round(pl.gold);
+  document.getElementById('hpbar').style.width=clamp(pl.hp/pl.maxHp*100,0,100)+'%';
+  document.getElementById('xpbar').style.width=clamp(pl.xp/(60+pl.lv*45)*100,0,100)+'%';
+  document.getElementById('xptxt').textContent=`XP ${Math.round(pl.xp)}/${60+pl.lv*45}`;
+  const mates=G.units.filter(u=>u.team===0&&!u.isPlayer);
+  document.getElementById('mateHp').innerHTML=mates.map(m=>
+   `${CLASSES[m.cls].glyph}${m.dead?'✝':Math.round(m.hp/m.maxHp*100)+'%'}`).join(' ');
+  const C=CLASSES[pl.cls];
+  document.getElementById('mpbar').style.width=clamp(pl.mp,0,100)+'%';
+  const KL=ctrlMode==='kb'?['Q','W','E','R','T','S']:['LMB','1','2','3','4','5'];
+  document.getElementById('skills').innerHTML=[
+   {k:KL[0],jp:'攻撃',t:Math.max(0,pl.atkT)},
+   {k:KL[1],jp:C.s1.jp,t:Math.max(0,pl.s1T),mp:C.s1.mp},
+   {k:KL[2],jp:C.s2.jp,t:Math.max(0,pl.s2T),mp:C.s2.mp},
+   {k:KL[3],jp:C.s3.jp,t:Math.max(0,pl.s3T),mp:C.s3.mp},
+   {k:KL[4],jp:C.s4.jp,t:Math.max(0,pl.s4T),mp:C.s4.mp},
+   {k:KL[5],jp:`薬×${G.potions}`,t:0}].map(s=>
+   `<div class="sk"${s.mp&&pl.mp<s.mp?' style="border-color:#3a5c78"':''}><b>${s.k}</b>${s.jp}`+
+   `${s.mp?`<span style="font-size:9px;color:#7ab0d0">${s.mp}</span>`:''}`+
+   `${s.t>0?`<div class="cd">${s.t.toFixed(1)}</div>`:''}</div>`).join('');
+ }
+ const f=document.getElementById('feed');
+ f.innerHTML=G.feed.map(x=>`<div>${x.msg}</div>`).join('');
+ // minimap
+ mx2.clearRect(0,0,150,150);
+ const sc=70/CFG.mapR;
+ mx2.beginPath();mx2.arc(75,75,CFG.mapR*sc,0,7);mx2.fillStyle='#15251e';mx2.fill();
+ mx2.beginPath();mx2.arc(75,75,G.witherR*sc,0,7);mx2.strokeStyle='#7a5f9a';mx2.stroke();
+ if(G.dragon&&G.dragon.hp>0){mx2.fillStyle='#e0b64f';mx2.fillRect(72,72,6,6)}
+ G.merchants.forEach(m=>{mx2.fillStyle='#ffd97a';mx2.fillRect(75+m.x*sc-1,75+m.y*sc-1,3,3)});
+ G.gimmicks.forEach(gm=>{if(gm.unlocked)return;
+  mx2.fillStyle='#5bc8b0';mx2.fillRect(75+gm.x*sc-1,75+gm.y*sc-1,3,3)});
+ G.units.forEach(u=>{if(u.dead)return;
+  if(u.team!==0&&(u.stealth>0||!seenBy(0,u)))return; // 隠密/ブッシュはミニマップにも出さない
+  mx2.fillStyle=CFG.teamColors[u.team];
+  mx2.fillRect(75+u.x*sc-2,75+u.y*sc-2,u.isPlayer?5:3,u.isPlayer?5:3)});
+}
+/* ================= loop & input ================= */
+let last=0,acc=0;
+function frame(ts){
+ if(!G){requestAnimationFrame(frame);return}
+ const dt=Math.min(.05,(ts-last)/1000);last=ts;
+ if(!G.over){acc+=dt;while(acc>=CFG.tick){update(CFG.tick);acc-=CFG.tick}}
+ render();
+ requestAnimationFrame(frame);
+}
+addEventListener('keydown',e=>{
+ const k=e.key.toLowerCase();
+ if(k.startsWith('arrow')||k==='tab')e.preventDefault();
+ keys[k]=true;
+ if(k==='m'){toggleMute();return}
+ if(!G||G.over)return;
+ const p=player();
+ if(k==='tab'&&p&&p.dead){G.specIdx=(G.specIdx||0)+1;return} // 観戦切替
+ if(!p||p.dead)return;
+ const kb=ctrlMode==='kb';
+ // スキル照準(KBモード): 退避系=向いてる方向 / 支援系=傷ついた味方or自分 / 攻撃系=自動照準
+ const skillAim=(n)=>{
+  if(!kb)return{x:mouse.wx,y:mouse.wy};
+  if(p.cls==='mage'&&(n===1||n===3))return facePt(p); // ブリンク/魔氷壁は向き
+  if(p.cls==='priest'){if(n===2||n===4){const m=G.units.filter(a=>a.team===0&&alive(a))
+    .sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp)[0]||p;return{x:m.x,y:m.y}}return{x:p.x,y:p.y}}
+  if(p.cls==='ranger'&&n===4)return{x:p.x,y:p.y}; // 煙幕は足元
+  return kbAim(p)};
+ const SKEY=kb?{w:1,e:2,r:3,t:4}:{};
+ let slot=({'1':1,'2':2,'3':3,'4':4})[k]||SKEY[k];
+ if(slot){const a=skillAim(slot);useSkill(p,slot,a.x,a.y)}
+ if(k==='5'||(kb&&k==='s')){
+  if(G.potions>0&&p.hp<p.maxHp){G.potions--;p.hp=Math.min(p.maxHp,p.hp+110);feed('ポーションを使った')}}
+ // F: QTE判定 > 装置解除開始 > 商人購入 の優先順
+ if(k==='f'){
+  if(G.qte){const q=G.qte;
+   if(Math.abs(q.needle-q.zoneC)<q.zoneW/2){ // 成功
+    q.hits++;sfx('coin');spawnParts(p.x,p.y-30,5,'#5bc8b0',40,.4);
+    if(q.hits>=3){unlockGimmick(q.dev,0);G.qte=null}
+    else q.zoneC=rnd(.2,.8);
+   } else { // 失敗: 装置の反撃+露見
+    G.qte=null;damage(null,p,30);p.revealT=1.4;sfx('hurt');
+    feed('<b style="color:var(--red)">解除失敗!</b> 装置が反撃した');
+   }
+  }
+  else if(G.nearDevice)G.qte={dev:G.nearDevice,needle:0,dir:1,hits:0,
+   zoneW:p.cls==='thief'?.24:.11,zoneC:rnd(.25,.75)};
+  else if(G.nearMerchant){
+   if(p.gold>=80){p.gold-=80;G.potions++;sfx('coin');feed(`ポーション購入(残${Math.round(p.gold)}G)`)}
+   else feed('ゴールドが足りない…')}
+ }
+ if(k==='g'&&G.nearMerchant&&!G.qte){
+  if(p.gold>=G.whetPrice){p.gold-=G.whetPrice;p.whet=(p.whet||0)+1;sfx('coin');
+   feed(`砥石購入 — 攻撃+${p.whet*8}%(次回${G.whetPrice=Math.round(G.whetPrice*1.5)}G)`)}
+  else feed('ゴールドが足りない…')}
+});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;
+ if(G){mouse.wx=e.clientX-cv.width/2+G.cam.x;mouse.wy=e.clientY-cv.height/2+G.cam.y}});
+addEventListener('mousedown',()=>mouse.down=true);
+addEventListener('mouseup',()=>mouse.down=false);
+let AC=null,muted=false,amb=null;
+function startAmbient(){ // 森の環境音(フィルタ済みノイズの微音ループ)
+ try{
+  if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();
+  if(amb)return;
+  const len=AC.sampleRate*4,buf=AC.createBuffer(1,len,AC.sampleRate);
+  const d=buf.getChannelData(0);let v=0;
+  for(let i=0;i<len;i++){v=v*.98+(Math.random()*2-1)*.02;d[i]=v}
+  const src=AC.createBufferSource();src.buffer=buf;src.loop=true;
+  const f=AC.createBiquadFilter();f.type='lowpass';f.frequency.value=300;
+  const g=AC.createGain();g.gain.value=.05;
+  src.connect(f);f.connect(g);g.connect(AC.destination);src.start();
+  amb=g;
+ }catch(e){}}
+function toggleMute(){muted=!muted;if(amb)amb.gain.value=muted?0:.05;
+ if(G)feed(muted?'ミュート(Mで解除)':'サウンドON')}
+function sfx(kind){
+ if(muted)return;
+ try{
+  if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();
+  const t=AC.currentTime, o=AC.createOscillator(), g=AC.createGain();
+  o.connect(g);g.connect(AC.destination);
+  const P={swing:[220,.05,'square',.05],hit:[160,.07,'sawtooth',.07],hurt:[110,.12,'sawtooth',.09],
+   coin:[880,.09,'triangle',.08],level:[523,.25,'triangle',.09],unseal:[70,.9,'sawtooth',.12],
+   victory:[660,.5,'triangle',.1],heal:[587,.18,'sine',.07]}[kind]||[300,.05,'sine',.05];
+  o.type=P[2];o.frequency.setValueAtTime(P[0],t);
+  if(kind==='level'||kind==='victory')o.frequency.setValueAtTime(P[0]*1.5,t+.12);
+  if(kind==='unseal')o.frequency.exponentialRampToValueAtTime(35,t+P[1]);
+  g.gain.setValueAtTime(P[3],t);g.gain.exponentialRampToValueAtTime(.001,t+P[1]);
+  o.start(t);o.stop(t+P[1]);
+ }catch(e){}
+}
+function startGame(cls){
+ document.getElementById('overlay').classList.add('hidden');
+ startAmbient();
+ newGame(cls);
+ requestAnimationFrame(ts=>{last=ts;requestAnimationFrame(frame)});
+}
+window.startGame=startGame;
+window.setMode=setMode;
+setMode('kb'); // 初期ハイライト
+// 職選択カードにスプライトプレビュー
+['warrior','mage','thief','priest','ranger'].forEach(cl=>{
+ const el=document.getElementById('pv_'+cl);if(!el)return;
+ const img=new Image();img.src=ART.unit(cl,0,'down').toDataURL();
+ img.style.cssText='width:40px;height:45px;image-rendering:pixelated';
+ el.appendChild(img)});
+</script>
+</body>
+</html>

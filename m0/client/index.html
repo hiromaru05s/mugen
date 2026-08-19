@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>夢幻の森 M0 — Phaser client</title>
+<style>
+ body{margin:0;background:#0d1512;color:#e8e2d2;font-family:system-ui,sans-serif;overflow:hidden}
+ #hud{position:fixed;top:8px;left:50%;transform:translateX(-50%);background:rgba(22,36,31,.85);
+  border:1px solid #2c4038;border-radius:8px;padding:6px 14px;font-size:13px;z-index:5}
+ #hud b{color:#e0b64f}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script src="https://unpkg.com/colyseus.js@0.15.26/dist/colyseus.js"></script>
+</head>
+<body>
+<div id="hud">接続中… <b>矢印/WASD</b>移動 / <b>クリック or Space</b>攻撃(照準は移動方向)</div>
+<script>
+'use strict';
+// M0クライアント: 描画と入力送信のみ。シミュレーションは一切しない(サーバー権威)。
+// 受信スナップショットを100ms遅延で補間描画(SPEC §0)。
+const ENDPOINT = location.hash.slice(1) || 'ws://localhost:2567';
+const INTERP_DELAY = 0.1; // 100ms
+let room=null, myId=null, myTeam=0, world=null;
+let snaps=[]; // {t, units, mobs} 受信順
+let fxList=[];
+const keys={}, mouse={down:false,wx:0,wy:0};
+
+const game=new Phaser.Game({
+ type:Phaser.AUTO, width:window.innerWidth, height:window.innerHeight, backgroundColor:'#101c17',
+ scene:{create,update}
+});
+let gfx,cam,scene;
+
+async function connect(){
+ const client=new Colyseus.Client(ENDPOINT);
+ room=await client.joinOrCreate('forest',{name:'hiro'});
+ room.onMessage('init',m=>{myId=m.id;myTeam=m.team;world=m;
+  document.getElementById('hud').innerHTML=`<b>チーム${m.team===0?'金':'紅'}</b>で参加 — 矢印/WASD移動 / クリックorSpace攻撃`;});
+ room.onMessage('snap',s=>{snaps.push(s);if(snaps.length>40)snaps.shift()});
+ room.onMessage('fx',f=>{f.life=.16;fxList.push(f)});
+ room.send('ready'); // ハンドラ登録完了 → initを要求
+ // 20Hzで入力送信
+ setInterval(()=>{
+  if(!room)return;
+  let mx=0,my=0;
+  if(keys['arrowup']||keys['w'])my--; if(keys['arrowdown']||keys['s'])my++;
+  if(keys['arrowleft']||keys['a'])mx--; if(keys['arrowright']||keys['d'])mx++;
+  const me=latestMe();
+  const aim=mouse.down&&me?Math.atan2(mouse.wy-me.y,mouse.wx-me.x):(mx||my)?Math.atan2(my,mx):undefined;
+  room.send('input',{mx,my,atk:mouse.down||!!keys[' '],aim});
+ },50);
+}
+function latestMe(){const s=snaps[snaps.length-1];return s&&s.units.find(u=>u.id===myId)}
+
+function create(){
+ scene=this; gfx=this.add.graphics(); cam=this.cameras.main;
+ addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
+ addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+ addEventListener('mousedown',()=>mouse.down=true);
+ addEventListener('mouseup',()=>mouse.down=false);
+ addEventListener('mousemove',e=>{mouse.wx=e.clientX+cam.scrollX;mouse.wy=e.clientY+cam.scrollY});
+ connect().catch(e=>{document.getElementById('hud').textContent='接続失敗: '+e.message});
+}
+
+// 補間: renderT = 最新スナップt - 100ms を挟む2スナップで線形補間
+function interpolated(){
+ if(snaps.length<2)return snaps[snaps.length-1]||null;
+ const rt=snaps[snaps.length-1].t-INTERP_DELAY;
+ let a=snaps[0],b=snaps[snaps.length-1];
+ for(let i=snaps.length-2;i>=0;i--){if(snaps[i].t<=rt){a=snaps[i];b=snaps[i+1];break}}
+ const f=b.t>a.t?Math.min(1,Math.max(0,(rt-a.t)/(b.t-a.t))):1;
+ const lerpSet=(A,B)=>B.map(u2=>{
+  const u1=A.find(x=>x.id===u2.id)||u2;
+  return {...u2,x:u1.x+(u2.x-u1.x)*f,y:u1.y+(u2.y-u1.y)*f};
+ });
+ return {t:rt,units:lerpSet(a.units,b.units),mobs:lerpSet(a.mobs,b.mobs)};
+}
+
+function update(_,dms){
+ const dt=dms/1000;
+ gfx.clear();
+ if(!world){return}
+ const s=interpolated(); if(!s)return;
+ const me=s.units.find(u=>u.id===myId);
+ if(me){cam.scrollX+=((me.x-innerWidth/2)-cam.scrollX)*.12;cam.scrollY+=((me.y-innerHeight/2)-cam.scrollY)*.12}
+ // ground
+ gfx.fillStyle(0x15251e,1).fillCircle(0,0,world.mapR);
+ // bushes / trees
+ for(const b of world.bushes)gfx.fillStyle(0x2f6e44,.8).fillCircle(b.x,b.y,b.r);
+ for(const t of world.trees)gfx.fillStyle(0x173425,1).fillCircle(t.x,t.y,t.r);
+ // mobs
+ for(const m of s.mobs){
+  if(m.tele)gfx.fillStyle(0xc33d2e,.4).fillCircle(m.tele.x,m.tele.y,m.tele.r);
+  gfx.fillStyle(0x665a86,1).fillCircle(m.x,m.y,14);
+  gfx.fillStyle(0xc33d2e,1).fillRect(m.x-14,m.y-22,28*m.hp/m.maxHp,3);
+ }
+ // units(サーバーが見せてくれたものだけが届いている=視界はサーバー製)
+ for(const u of s.units){
+  if(u.dead)continue;
+  const col=u.team===0?0xe0b64f:0xc05a5a;
+  gfx.fillStyle(col,1).fillCircle(u.x,u.y,15);
+  gfx.lineStyle(2,u.id===myId?0xffffff:0x0a0f0d).strokeCircle(u.x,u.y,15);
+  if(u.reveal)gfx.lineStyle(1,0xe0b64f,.8).strokeCircle(u.x,u.y,21);
+  gfx.fillStyle(0x0a0f0d,1).fillRect(u.x-16,u.y-26,32,4);
+  gfx.fillStyle(u.team===myTeam?0x4caf7d:0xc33d2e,1).fillRect(u.x-16,u.y-26,32*u.hp/u.maxHp,4);
+ }
+ // fx
+ fxList.forEach(f=>{f.life-=dt;
+  gfx.lineStyle(3,0xefe7d5,Math.max(0,f.life/.16));
+  gfx.beginPath();gfx.arc(f.x,f.y,42,f.dir-1,f.dir+1);gfx.strokePath()});
+ fxList=fxList.filter(f=>f.life>0);
+}
+</script>
+</body>
+</html>

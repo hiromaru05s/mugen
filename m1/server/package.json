@@ -1,0 +1,17 @@
+{
+  "name": "mugen-no-mori-m1-server",
+  "version": "1.0.0",
+  "description": "M1: data-driven skill primitives + 5 classes x 4 skills, server-authoritative",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "colyseus": "^0.15.57",
+    "colyseus.js": "^0.15.26",
+    "phaser": "^3.80.1"
+  }
+}

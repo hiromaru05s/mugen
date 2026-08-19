@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>夢幻の森 M1 — Phaser client</title>
+<style>
+ body{margin:0;background:#0d1512;color:#e8e2d2;font-family:system-ui,sans-serif;overflow:hidden}
+ #hud{position:fixed;top:8px;left:50%;transform:translateX(-50%);background:rgba(22,36,31,.85);
+  border:1px solid #2c4038;border-radius:8px;padding:6px 14px;font-size:13px;z-index:5}
+ #hud b{color:#e0b64f}
+ #bars{position:fixed;left:10px;bottom:10px;background:rgba(22,36,31,.85);border:1px solid #2c4038;
+  border-radius:8px;padding:8px 12px;min-width:180px;font-size:12px;z-index:5}
+ .bar{height:9px;background:#0a0f0d;border-radius:4px;overflow:hidden;margin:2px 0 6px}
+ .bar>div{height:100%}
+ #skills{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:5}
+ .sk{width:54px;height:54px;background:rgba(22,36,31,.9);border:1px solid #3a5248;border-radius:8px;
+  position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px}
+ .sk b{font-size:13px;color:#e0b64f}
+ .sk .cd{position:absolute;inset:0;background:rgba(0,0,0,.65);border-radius:8px;display:flex;
+  align-items:center;justify-content:center;font-size:15px;font-weight:700}
+ #select{position:fixed;inset:0;background:rgba(8,14,11,.92);display:flex;align-items:center;justify-content:center;z-index:10}
+ .panel{background:#16241f;border:1px solid #e0b64f;border-radius:12px;padding:24px;text-align:center}
+ .panel button{background:#1d3129;border:1px solid #3a5248;color:#e8e2d2;border-radius:8px;padding:10px 14px;
+  margin:4px;cursor:pointer;font-size:14px}
+ .panel button:hover{border-color:#e0b64f}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script src="https://unpkg.com/colyseus.js@0.15.26/dist/colyseus.js"></script>
+</head>
+<body>
+<div id="hud">職を選択してください</div>
+<div id="select"><div class="panel">
+ <h2 style="color:#e0b64f;letter-spacing:.15em">夢幻の森 M1</h2>
+ <p style="color:#8fa598;font-size:12px">矢印/WASD移動・クリックorSpace攻撃・W/E/R/T(または1-4)スキル(照準=マウス)</p>
+ <div>
+  <button onclick="pick('warrior')">⚔ 近接</button><button onclick="pick('mage')">✦ 魔法</button>
+  <button onclick="pick('thief')">◆ 盗賊</button><button onclick="pick('priest')">✚ 僧侶</button>
+  <button onclick="pick('ranger')">➹ 遠距離</button>
+ </div></div></div>
+<div id="bars" style="display:none">
+ <b id="clsName"></b>
+ HP<div class="bar"><div id="hp" style="background:#4caf7d"></div></div>
+ MP<div class="bar" style="height:6px"><div id="mp" style="background:#5a9ec0"></div></div>
+</div>
+<div id="skills" style="display:none"></div>
+<script>
+'use strict';
+// M1クライアント: 自機のみ予測移動(client-side prediction)+サーバー照合。他は100ms補間。
+const ENDPOINT = location.hash.slice(1) || 'ws://localhost:2568';
+const INTERP = 0.1;
+let room=null,myId=null,myTeam=0,world=null,mySkills=[],myStats=null;
+let snaps=[],fxList=[],lastMe=null;
+let pred=null; // 予測自機位置
+const keys={},mouse={down:false,wx:0,wy:0};
+const GLYPH={warrior:'⚔',mage:'✦',thief:'◆',priest:'✚',ranger:'➹'};
+
+window.pick=async function(cls){
+ document.getElementById('select').style.display='none';
+ document.getElementById('bars').style.display='block';
+ document.getElementById('skills').style.display='flex';
+ const client=new Colyseus.Client(ENDPOINT);
+ room=await client.joinOrCreate('forest',{name:'hiro',cls});
+ room.onMessage('init',m=>{myId=m.id;myTeam=m.team;world=m;mySkills=m.skills;myStats=m.stats;
+  document.getElementById('clsName').textContent=GLYPH[m.cls]+' '+m.cls+' (チーム'+(m.team===0?'金':'紅')+')';
+  document.getElementById('hud').innerHTML=`<b>チーム${m.team===0?'金':'紅'}</b> — WASD/矢印移動・クリック攻撃・W/E/R/T or 1-4スキル`});
+ room.onMessage('snap',s=>{snaps.push(s);if(snaps.length>40)snaps.shift();
+  const me=s.units.find(u=>u.id===myId);
+  if(me){lastMe=me;
+   if(!pred)pred={x:me.x,y:me.y};
+   else{const err=Math.hypot(pred.x-me.x,pred.y-me.y); // 予測照合
+    if(err>60||me.dead){pred.x=me.x;pred.y=me.y}
+    else{pred.x+=(me.x-pred.x)*.18;pred.y+=(me.y-pred.y)*.18}}}
+ });
+ room.onMessage('fx',f=>{if(f.kind==='swing'){f.life=.16;fxList.push(f)}});
+ room.send('ready');
+ setInterval(()=>{ // 20Hz入力
+  if(!room)return;
+  const {mx,my}=moveVec();
+  const aim=aimAngle();
+  room.send('input',{mx,my,atk:mouse.down||!!keys[' '],aim});
+ },50);
+};
+function moveVec(){let mx=0,my=0;
+ if(keys['arrowup']||keys['w'])my--;if(keys['arrowdown']||keys['s'])my++;
+ if(keys['arrowleft']||keys['a'])mx--;if(keys['arrowright']||keys['d'])mx++;return{mx,my}}
+function aimAngle(){const p=pred||lastMe;if(!p)return 0;return Math.atan2(mouse.wy-p.y,mouse.wx-p.x)}
+
+const game=new Phaser.Game({type:Phaser.AUTO,width:innerWidth,height:innerHeight,backgroundColor:'#101c17',scene:{create,update}});
+let gfx,cam,txt;
+function create(){
+ gfx=this.add.graphics();cam=this.cameras.main;
+ txt=this.add.text(0,0,'',{fontSize:'11px',color:'#8fa598'}).setDepth(5);
+ addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();keys[k]=true;
+  if(k.startsWith('arrow'))e.preventDefault();
+  if(k==='a'||k==='s'||k==='d')wasdUsed=true; // WASD移動派の検出
+  if(!room||!pred)return;
+  // スキル: 1-4は常時 / E,R,Tは常時 / Wは矢印移動派のみ(WASD移動と衝突させない)
+  let slot=({'1':1,'2':2,'3':3,'4':4,'e':2,'r':3,'t':4})[k];
+  if(k==='w'&&!wasdUsed)slot=1;
+  if(slot)room.send('cast',{slot,tx:mouse.wx,ty:mouse.wy});
+ });
+ addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+ addEventListener('mousedown',()=>mouse.down=true);
+ addEventListener('mouseup',()=>mouse.down=false);
+ addEventListener('mousemove',e=>{mouse.wx=e.clientX+cam.scrollX;mouse.wy=e.clientY+cam.scrollY;wasdUsed=wasdUsed})
+}
+let wasdUsed=false; // WASDで移動した形跡があればWをスキルにしない(簡易ヒューリスティック)
+
+function interpolated(){
+ if(snaps.length<2)return snaps[snaps.length-1]||null;
+ const rt=snaps[snaps.length-1].t-INTERP;
+ let a=snaps[0],b=snaps[snaps.length-1];
+ for(let i=snaps.length-2;i>=0;i--){if(snaps[i].t<=rt){a=snaps[i];b=snaps[i+1];break}}
+ const f=b.t>a.t?Math.min(1,Math.max(0,(rt-a.t)/(b.t-a.t))):1;
+ const L=(A,B)=>B.map(u2=>{const u1=A.find(x=>x.id===u2.id)||u2;
+  return {...u2,x:u1.x+(u2.x-u1.x)*f,y:u1.y+(u2.y-u1.y)*f}});
+ return {...b,units:L(a.units,b.units),mobs:L(a.mobs,b.mobs)};
+}
+
+function update(_,dms){
+ const dt=dms/1000;
+ gfx.clear();txt.setText('');
+ if(!world)return;
+ const s=interpolated();if(!s)return;
+ // 予測移動(自機のみローカル適用)
+ if(pred&&myStats&&lastMe&&!lastMe.dead){
+  const {mx,my}=moveVec();const l=Math.hypot(mx,my);
+  if(l>0&&!lastMe.stun){pred.x+=mx/l*myStats.spd*dt;pred.y+=my/l*myStats.spd*dt}
+ }
+ const cx0=pred?pred.x:0,cy0=pred?pred.y:0;
+ cam.scrollX+=((cx0-innerWidth/2)-cam.scrollX)*.15;
+ cam.scrollY+=((cy0-innerHeight/2)-cam.scrollY)*.15;
+ // ground/bush/tree
+ gfx.fillStyle(0x15251e,1).fillCircle(0,0,world.mapR);
+ for(const b of world.bushes)gfx.fillStyle(0x2f6e44,.8).fillCircle(b.x,b.y,b.r);
+ for(const t of world.trees)gfx.fillStyle(0x173425,1).fillCircle(t.x,t.y,t.r);
+ // zones
+ for(const z of s.zones){
+  if(z.kind==='nuke'){gfx.fillStyle(0xc33d2e,.3).fillCircle(z.x,z.y,z.r);gfx.lineStyle(2,0xc33d2e,1).strokeCircle(z.x,z.y,z.r)}
+  if(z.kind==='slow'){gfx.fillStyle(0x5bc8b0,.18).fillCircle(z.x,z.y,z.r)}
+  if(z.kind==='heal'){gfx.fillStyle(0xe0b64f,.15).fillCircle(z.x,z.y,z.r)}
+  if(z.kind==='smoke'){gfx.fillStyle(0x8fa598,.3).fillCircle(z.x,z.y,z.r)}
+ }
+ // walls
+ for(const w of s.walls){gfx.fillStyle(0x78bed2,.55).fillCircle(w.x,w.y,w.r);gfx.lineStyle(2,0xbfeee2,1).strokeCircle(w.x,w.y,w.r)}
+ // traps(自チーム+盗賊検知)
+ for(const tr of s.traps){gfx.lineStyle(1,tr.own?0xe0b64f:0xc33d2e,.7).strokeCircle(tr.x,tr.y,tr.r)}
+ // mobs
+ for(const m of s.mobs){
+  if(m.tele)gfx.fillStyle(0xc33d2e,.4).fillCircle(m.tele.x,m.tele.y,m.tele.r);
+  gfx.fillStyle(0x665a86,1).fillCircle(m.x,m.y,14);
+  gfx.fillStyle(0xc33d2e,1).fillRect(m.x-14,m.y-22,28*m.hp/m.maxHp,3);
+ }
+ // projectiles
+ for(const p of s.projs){gfx.fillStyle(p.cls==='ranger'?0xbfeee2:0xb78ae0,1).fillCircle(p.x,p.y,p.r)}
+ // units
+ for(const u of s.units){
+  if(u.dead)continue;
+  const isMe=u.id===myId;
+  const x=isMe&&pred?pred.x:u.x, y=isMe&&pred?pred.y:u.y;
+  const col=u.team===0?0xe0b64f:0xc05a5a;
+  gfx.fillStyle(col,u.stealth?.45:1).fillCircle(x,y,15);
+  gfx.lineStyle(2,isMe?0xffffff:0x0a0f0d).strokeCircle(x,y,15);
+  if(u.reveal)gfx.lineStyle(1,0xe0b64f,.8).strokeCircle(x,y,21);
+  if(u.shield)gfx.lineStyle(2,0xbfeee2,.8).strokeCircle(x,y,19);
+  if(u.mark)gfx.lineStyle(2,0xc33d2e,.9).strokeCircle(x,y,23);
+  gfx.fillStyle(0x0a0f0d,1).fillRect(x-16,y-26,32,4);
+  gfx.fillStyle(u.team===myTeam?0x4caf7d:0xc33d2e,1).fillRect(x-16,y-26,32*u.hp/u.maxHp,4);
+  txt.setText(txt.text+'');
+  if(u.stun)gfx.fillStyle(0xffd97a,1).fillCircle(x,y-32,3);
+ }
+ // fx
+ fxList.forEach(f=>{f.life-=dt;gfx.lineStyle(3,0xefe7d5,Math.max(0,f.life/.16));
+  gfx.beginPath();gfx.arc(f.x,f.y,42,f.dir-1,f.dir+1);gfx.strokePath()});
+ fxList=fxList.filter(f=>f.life>0);
+ // HUD bars & skills
+ if(lastMe){
+  document.getElementById('hp').style.width=Math.max(0,lastMe.hp/lastMe.maxHp*100)+'%';
+  const me=s.me||{};
+  document.getElementById('mp').style.width=(me.mp||0)+'%';
+  const cds=me.cd||[0,0,0,0];
+  document.getElementById('skills').innerHTML=mySkills.map((sk,i)=>
+   `<div class="sk"><b>${['W/1','E/2','R/3','T/4'][i]}</b>${sk.jp}<span style="font-size:9px;color:#7ab0d0">${sk.mp}</span>`+
+   `${cds[i]>0?`<div class="cd">${cds[i].toFixed(1)}</div>`:''}</div>`).join('');
+ }
+}
+</script>
+</body>
+</html>

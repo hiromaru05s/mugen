@@ -1,0 +1,19 @@
+{
+  "frameSize": { "player": 48, "mobSmall": 48, "mobLarge": 64, "dragon": 256 },
+  "directions": ["down", "side", "up"],
+  "player": {
+    "idle":   { "frames": 4, "fps": 6,  "loop": true  },
+    "walk":   { "frames": 6, "fps": 10, "loop": true  },
+    "attack": { "frames": 5, "fps": 12, "loop": false },
+    "cast":   { "frames": 4, "fps": 10, "loop": false },
+    "hit":    { "frames": 2, "fps": 10, "loop": false },
+    "death":  { "frames": 6, "fps": 8,  "loop": false }
+  },
+  "mob": {
+    "idle":   { "frames": 4, "fps": 6,  "loop": true  },
+    "walk":   { "frames": 4, "fps": 8,  "loop": true  },
+    "attack": { "frames": 4, "fps": 10, "loop": false },
+    "death":  { "frames": 4, "fps": 8,  "loop": false }
+  },
+  "sheetLayout": { "rows": "state x direction (manifest order)", "cols": "frames", "gap": 0, "origin": "bottom-center" }
+}
