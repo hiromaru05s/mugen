@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>夢幻の森 M2 — Phaser client</title>
+<style>
+ body{margin:0;background:#0d1512;color:#e8e2d2;font-family:system-ui,sans-serif;overflow:hidden}
+ #hud{position:fixed;top:8px;left:50%;transform:translateX(-50%);background:rgba(22,36,31,.85);
+  border:1px solid #2c4038;border-radius:8px;padding:6px 14px;font-size:13px;z-index:5;display:flex;gap:14px}
+ #hud b{color:#e0b64f}
+ #contrib{position:fixed;top:44px;left:50%;transform:translateX(-50%);font-size:11px;z-index:5;
+  background:rgba(22,36,31,.85);border:1px solid #2c4038;border-radius:8px;padding:3px 10px}
+ #contrib:empty{display:none}
+ #bars{position:fixed;left:10px;bottom:10px;background:rgba(22,36,31,.85);border:1px solid #2c4038;
+  border-radius:8px;padding:8px 12px;min-width:200px;font-size:12px;z-index:5}
+ .bar{height:9px;background:#0a0f0d;border-radius:4px;overflow:hidden;margin:2px 0 6px}
+ .bar>div{height:100%}
+ #skills{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:5}
+ .sk{width:54px;height:54px;background:rgba(22,36,31,.9);border:1px solid #3a5248;border-radius:8px;
+  position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px}
+ .sk b{font-size:12px;color:#e0b64f}
+ .sk .cd{position:absolute;inset:0;background:rgba(0,0,0,.65);border-radius:8px;display:flex;
+  align-items:center;justify-content:center;font-size:14px;font-weight:700}
+ #hint{position:fixed;bottom:74px;left:50%;transform:translateX(-50%);background:rgba(22,36,31,.9);
+  border:1px solid #e0b64f;border-radius:8px;padding:5px 12px;font-size:12px;z-index:5}
+ #hint:empty{display:none}
+ #select,#resultOv{position:fixed;inset:0;background:rgba(8,14,11,.92);display:flex;align-items:center;justify-content:center;z-index:10}
+ .panel{background:#16241f;border:1px solid #e0b64f;border-radius:12px;padding:24px;text-align:center;min-width:340px}
+ .panel button{background:#1d3129;border:1px solid #3a5248;color:#e8e2d2;border-radius:8px;padding:10px 14px;
+  margin:4px;cursor:pointer;font-size:14px}
+ .panel button:hover{border-color:#e0b64f}
+ .panel table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}
+ .panel td,.panel th{padding:4px 8px;border-bottom:1px solid #2c4038;text-align:left}
+ kbd{background:#0a0f0d;border:1px solid #3a5248;border-radius:4px;padding:1px 5px;font-size:11px}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script src="https://unpkg.com/colyseus.js@0.15.26/dist/colyseus.js"></script>
+</head>
+<body>
+<div id="hud"><span id="timer">--:--</span><span id="phase">職を選択</span></div>
+<div id="contrib"></div>
+<div id="select"><div class="panel">
+ <h2 style="color:#e0b64f;letter-spacing:.15em">夢幻の森 M3</h2>
+ <p style="color:#8fa598;font-size:12px">足りない枠はBotが埋めて常に3v3。RPは名前に紐づいて累積される。<br>
+ WASD/矢印移動・クリックorSpace攻撃・1-4(E/R/T)スキル・<kbd>5</kbd>ポーション・<kbd>F</kbd>購入/装置・<kbd>G</kbd>砥石</p>
+ <div style="margin-bottom:8px"><input id="pname" placeholder="なまえ" maxlength="12"
+  style="background:#0a0f0d;border:1px solid #3a5248;color:#e8e2d2;border-radius:8px;padding:8px 10px;font-size:14px;text-align:center"></div>
+ <div>
+  <button onclick="pick('warrior')">⚔ 近接</button><button onclick="pick('mage')">✦ 魔法</button>
+  <button onclick="pick('thief')">◆ 盗賊</button><button onclick="pick('priest')">✚ 僧侶</button>
+  <button onclick="pick('ranger')">➹ 遠距離</button>
+ </div></div></div>
+<div id="lobbyOv" style="display:none;position:fixed;inset:0;background:rgba(8,14,11,.9);z-index:9;align-items:center;justify-content:center">
+ <div class="panel">
+  <h2 style="color:#e0b64f">待機ロビー</h2>
+  <div id="roster" style="text-align:left;font-size:13px;margin:10px 0"></div>
+  <p style="color:#8fa598;font-size:12px">開始時、空き枠はBotが埋めて3v3になる</p>
+  <button onclick="room.send('start')" style="border-color:#e0b64f">マッチ開始</button>
+ </div></div>
+<div id="resultOv" style="display:none"><div class="panel" id="resultPanel"></div></div>
+<div id="bars" style="display:none">
+ <div style="display:flex;justify-content:space-between"><b id="clsName"></b><span>Lv<span id="lv">1</span> <span style="color:#e0b64f" id="gold">0</span>G</span></div>
+ HP<div class="bar"><div id="hp" style="background:#4caf7d"></div></div>
+ MP<div class="bar" style="height:6px"><div id="mp" style="background:#5a9ec0"></div></div>
+ <span id="xpt" style="font-size:10px;color:#8fa598"></span><div class="bar" style="height:4px"><div id="xp" style="background:#5bc8b0"></div></div>
+</div>
+<div id="skills" style="display:none"></div>
+<div id="hint"></div>
+<script>
+'use strict';
+const ENDPOINT = location.hash.slice(1) || 'ws://localhost:2570';
+const INTERP = 0.1;
+let room=null,myId=null,myTeam=0,world=null,mySkills=[],myStats=null;
+let snaps=[],fxList=[],lastMe=null,lastSelf=null,pred=null,result=null;
+let qte=null; // {needle,dir,zoneC,zoneW,hits}
+const keys={},mouse={down:false,wx:0,wy:0};
+const GLYPH={warrior:'⚔',mage:'✦',thief:'◆',priest:'✚',ranger:'➹'};
+let wasdUsed=false;
+
+window.pick=async function(cls){
+ document.getElementById('select').style.display='none';
+ document.getElementById('bars').style.display='block';
+ document.getElementById('skills').style.display='flex';
+ const pname=(document.getElementById('pname').value||'player').trim()||'player';
+ const client=new Colyseus.Client(ENDPOINT);
+ room=await client.joinOrCreate('forest',{name:pname,cls});
+ document.getElementById('lobbyOv').style.display='flex';
+ room.onMessage('init',m=>{myId=m.id;myTeam=m.team;world=m;mySkills=m.skills;myStats=m.stats;
+  document.getElementById('clsName').textContent=GLYPH[m.cls]+' チーム'+(m.team===0?'金':'紅')});
+ room.onMessage('snap',s=>{snaps.push(s);if(snaps.length>40)snaps.shift();
+  if(s.phase==='lobby'&&s.roster){
+   document.getElementById('roster').innerHTML=s.roster.map(r=>
+    `<div><b style="color:${r.team===0?'#e0b64f':'#c05a5a'}">●</b> ${r.name} (${r.cls})</div>`).join('');
+  } else document.getElementById('lobbyOv').style.display='none';
+  const me=s.units.find(u=>u.id===myId);lastSelf=s.me;
+  if(me){lastMe=me;
+   if(!pred)pred={x:me.x,y:me.y};
+   else{const err=Math.hypot(pred.x-me.x,pred.y-me.y);
+    if(err>60||me.dead){pred.x=me.x;pred.y=me.y}
+    else{pred.x+=(me.x-pred.x)*.18;pred.y+=(me.y-pred.y)*.18}}}
+ });
+ room.onMessage('fx',f=>{if(f.kind==='swing'){f.life=.16;fxList.push(f)}});
+ room.onMessage('result',r=>{result=r;showResult(r)});
+ room.send('ready');
+ setInterval(()=>{
+  if(!room||result)return;
+  const {mx,my}=moveVec();
+  room.send('input',{mx,my,atk:(mouse.down||!!keys[' '])&&!qte,aim:aimAngle()});
+ },50);
+};
+function moveVec(){let mx=0,my=0;
+ if(keys['arrowup']||keys['w'])my--;if(keys['arrowdown']||keys['s'])my++;
+ if(keys['arrowleft']||keys['a'])mx--;if(keys['arrowright']||keys['d'])mx++;return{mx,my}}
+function aimAngle(){const p=pred||lastMe;if(!p)return 0;return Math.atan2(mouse.wy-p.y,mouse.wx-p.x)}
+function showResult(r){
+ const rows=r.rows.slice().sort((a,b)=>b.rp-a.rp);
+ const me2=(r.players||[]).find(p=>p.name&&lastMe&&p.team===myTeam);
+ document.getElementById('resultPanel').innerHTML=
+  `<h2 style="color:#e0b64f">${r.dragonKilled?'竜は倒れた':'マッチ終了'}</h2><p style="color:#8fa598">${r.reason}</p>
+  <table><tr><th>チーム</th><th>竜与ダメ</th><th>貢献率</th><th>RP</th></tr>
+  ${rows.map(x=>`<tr style="${x.team===myTeam?'color:#e0b64f':''}"><td>${x.team===0?'金':'紅'}</td><td>${x.dmg}</td><td>${Math.round(x.share*100)}%</td><td>+${x.rp}</td></tr>`).join('')}</table>
+  ${(r.players||[]).map(p=>`<p style="font-size:12px;color:#8fa598">${p.name}: +${p.rp}RP → 累計<b style="color:#e0b64f">${p.totalRp}RP</b>(${p.matches}戦${p.wins}勝)</p>`).join('')}
+  <button onclick="location.reload()">もう一度</button>`;
+ document.getElementById('resultOv').style.display='flex';
+}
+
+const game=new Phaser.Game({type:Phaser.AUTO,width:innerWidth,height:innerHeight,backgroundColor:'#101c17',scene:{create,update}});
+let gfx,cam;
+function create(){
+ gfx=this.add.graphics();cam=this.cameras.main;
+ addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();keys[k]=true;
+  if(k.startsWith('arrow'))e.preventDefault();
+  if(k==='a'||k==='s'||k==='d')wasdUsed=true;
+  if(!room||!pred||result)return;
+  // QTE操作
+  if(qte&&k==='f'){
+   if(Math.abs(qte.needle-qte.zoneC)<qte.zoneW/2){
+    qte.hits++;qte.zoneC=.2+Math.random()*.6;
+    if(qte.hits>=3){room.send('gimDone');qte=null}
+   } else qte=null; // 失敗は中断(サーバー側は時間下限で守られている)
+   return;
+  }
+  if(k==='f'&&lastSelf){
+   if(lastSelf.nearGim){room.send('gimStart');
+    qte={needle:0,dir:1,hits:0,zoneW:(world&&myStats&&GLYPH?0:0)||((lastMe&&lastMe.cls==='thief')?.24:.11),zoneC:.2+Math.random()*.6};return}
+   if(lastSelf.nearMerchant){room.send('buy',{item:'potion'});return}
+  }
+  if(k==='g'&&lastSelf&&lastSelf.nearMerchant){room.send('buy',{item:'whet'});return}
+  if(k==='5'){room.send('potion');return}
+  let slot=({'1':1,'2':2,'3':3,'4':4,'e':2,'r':3,'t':4})[k];
+  if(k==='w'&&!wasdUsed)slot=1;
+  if(slot)room.send('cast',{slot,tx:mouse.wx,ty:mouse.wy});
+ });
+ addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+ addEventListener('mousedown',()=>mouse.down=true);
+ addEventListener('mouseup',()=>mouse.down=false);
+ addEventListener('mousemove',e=>{mouse.wx=e.clientX+cam.scrollX;mouse.wy=e.clientY+cam.scrollY});
+}
+function interpolated(){
+ if(snaps.length<2)return snaps[snaps.length-1]||null;
+ const rt=snaps[snaps.length-1].t-INTERP;
+ let a=snaps[0],b=snaps[snaps.length-1];
+ for(let i=snaps.length-2;i>=0;i--){if(snaps[i].t<=rt){a=snaps[i];b=snaps[i+1];break}}
+ const f=b.t>a.t?Math.min(1,Math.max(0,(rt-a.t)/(b.t-a.t))):1;
+ const L=(A,B)=>B.map(u2=>{const u1=A.find(x=>x.id===u2.id)||u2;
+  return {...u2,x:u1.x+(u2.x-u1.x)*f,y:u1.y+(u2.y-u1.y)*f}});
+ return {...b,units:L(a.units,b.units),mobs:L(a.mobs,b.mobs)};
+}
+function fmt(t){return Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0')}
+
+function update(_,dms){
+ const dt=dms/1000;
+ gfx.clear();
+ if(!world)return;
+ const s=interpolated();if(!s)return;
+ // QTEニードル
+ if(qte){qte.needle+=qte.dir*dt*1.5;
+  if(qte.needle>1){qte.needle=1;qte.dir=-1}if(qte.needle<0){qte.needle=0;qte.dir=1}
+  const {mx,my}=moveVec();if(mx||my)qte=null} // 移動で中断
+ // 予測移動
+ if(pred&&myStats&&lastMe&&!lastMe.dead&&!qte){
+  const {mx,my}=moveVec();const l=Math.hypot(mx,my);
+  if(l>0&&!lastMe.stun){pred.x+=mx/l*myStats.spd*dt;pred.y+=my/l*myStats.spd*dt}
+ }
+ // カメラ: 死亡時は生存味方へ(観戦)
+ let camT=pred;
+ if(lastMe&&lastMe.dead){const ally=s.units.find(u=>u.team===myTeam&&!u.dead)||s.units.find(u=>!u.dead);
+  if(ally)camT={x:ally.x,y:ally.y}}
+ if(camT){cam.scrollX+=((camT.x-innerWidth/2)-cam.scrollX)*.15;cam.scrollY+=((camT.y-innerHeight/2)-cam.scrollY)*.15}
+ // ground bands
+ gfx.fillStyle(0x15251e,1).fillCircle(0,0,world.mapR);
+ gfx.fillStyle(0x182a21,1).fillCircle(0,0,world.mapR*.66);
+ gfx.fillStyle(0x1b2f25,1).fillCircle(0,0,world.mapR*.38);
+ gfx.fillStyle(0x232a1c,1).fillCircle(0,0,world.coreR);
+ // wither(枯死域)
+ if(s.witherR<world.mapR){
+  gfx.lineStyle(3,0x7a5f9a,1).strokeCircle(0,0,s.witherR);
+  gfx.fillStyle(0x3c2d4b,.4);
+  gfx.beginPath();gfx.arc(0,0,world.mapR+300,0,6.283,false);gfx.arc(0,0,s.witherR,0,6.283,true);gfx.fillPath();
+ }
+ for(const b of world.bushes)gfx.fillStyle(0x2f6e44,.8).fillCircle(b.x,b.y,b.r);
+ // chests / merchants / gimmicks
+ for(const c of s.chests){if(c.open)continue;gfx.fillStyle(0xc9a03a,1).fillRect(c.x-9,c.y-7,18,14)}
+ for(const m of world.merchants){gfx.fillStyle(0xffd97a,.15).fillCircle(m.x,m.y,50);gfx.fillStyle(0x8f6238,1).fillRect(m.x-12,m.y-8,24,16);gfx.fillStyle(0xffd97a,1).fillRect(m.x-2,m.y-14,4,4)}
+ for(const g of s.gimmicks){
+  gfx.fillStyle(0x2a3630,1).fillCircle(g.x,g.y,15);
+  if(!g.unlocked)gfx.lineStyle(2,0x5bc8b0,.85).strokeCircle(g.x,g.y,22);
+  else gfx.fillStyle(0x5bc8b0,.3).fillCircle(g.x,g.y,5)}
+ for(const t of world.trees)gfx.fillStyle(0x173425,1).fillCircle(t.x,t.y,t.r);
+ // zones/walls/traps
+ for(const z of s.zones){
+  if(z.kind==='nuke'){gfx.fillStyle(0xc33d2e,.3).fillCircle(z.x,z.y,z.r);gfx.lineStyle(2,0xc33d2e,1).strokeCircle(z.x,z.y,z.r)}
+  if(z.kind==='slow')gfx.fillStyle(0x5bc8b0,.18).fillCircle(z.x,z.y,z.r);
+  if(z.kind==='heal')gfx.fillStyle(0xe0b64f,.15).fillCircle(z.x,z.y,z.r);
+  if(z.kind==='smoke')gfx.fillStyle(0x8fa598,.3).fillCircle(z.x,z.y,z.r);
+ }
+ for(const w of s.walls){gfx.fillStyle(0x78bed2,.55).fillCircle(w.x,w.y,w.r);gfx.lineStyle(2,0xbfeee2,1).strokeCircle(w.x,w.y,w.r)}
+ for(const tr of s.traps)gfx.lineStyle(1,tr.own?0xe0b64f:0xc33d2e,.7).strokeCircle(tr.x,tr.y,tr.r);
+ // dragon / seal
+ if(s.dragon){const D=s.dragon;
+  if(D.hp>0){gfx.fillStyle(0x2f6a4c,1).fillCircle(D.x,D.y,D.r);
+   gfx.lineStyle(3,0xe0b64f,1).strokeCircle(D.x,D.y,D.r);
+   gfx.fillStyle(0xffe9a8,.9).fillCircle(D.x,D.y,10);
+   gfx.fillStyle(0x0a0f0d,1).fillRect(D.x-70,D.y-D.r-18,140,8);
+   gfx.fillStyle(0xc33d2e,1).fillRect(D.x-70,D.y-D.r-18,140*D.hp/D.maxHp,8)}
+ } else {gfx.lineStyle(2,0xe0b64f,.8).strokeCircle(0,0,70)}
+ // mobs
+ for(const m of s.mobs){
+  if(m.tele)gfx.fillStyle(0xc33d2e,.4).fillCircle(m.tele.x,m.tele.y,m.tele.r);
+  gfx.fillStyle(0x665a86,1).fillCircle(m.x,m.y,14);
+  gfx.fillStyle(0xc33d2e,1).fillRect(m.x-14,m.y-22,28*m.hp/m.maxHp,3);
+ }
+ for(const p of s.projs)gfx.fillStyle(p.cls==='ranger'?0xbfeee2:0xb78ae0,1).fillCircle(p.x,p.y,p.r);
+ // units
+ for(const u of s.units){
+  if(u.dead)continue;
+  const isMe=u.id===myId;
+  const x=isMe&&pred?pred.x:u.x, y=isMe&&pred?pred.y:u.y;
+  gfx.fillStyle(u.team===0?0xe0b64f:0xc05a5a,u.stealth?.45:1).fillCircle(x,y,15);
+  gfx.lineStyle(2,isMe?0xffffff:0x0a0f0d).strokeCircle(x,y,15);
+  if(u.reveal)gfx.lineStyle(1,0xe0b64f,.8).strokeCircle(x,y,21);
+  if(u.shield)gfx.lineStyle(2,0xbfeee2,.8).strokeCircle(x,y,19);
+  if(u.mark)gfx.lineStyle(2,0xc33d2e,.9).strokeCircle(x,y,23);
+  if(u.stun)gfx.fillStyle(0xffd97a,1).fillCircle(x,y-32,3);
+  gfx.fillStyle(0x0a0f0d,1).fillRect(x-16,y-26,32,4);
+  gfx.fillStyle(u.team===myTeam?0x4caf7d:0xc33d2e,1).fillRect(x-16,y-26,32*u.hp/u.maxHp,4);
+ }
+ // QTEバー
+ if(qte&&pred){const w=120,x0=pred.x-60,y0=pred.y-56;
+  gfx.fillStyle(0x0a0f0d,.9).fillRect(x0-5,y0-7,w+10,20);
+  gfx.lineStyle(1,0x5bc8b0,1).strokeRect(x0-5,y0-7,w+10,20);
+  gfx.fillStyle(0x16241f,1).fillRect(x0,y0-2,w,10);
+  gfx.fillStyle(0xe0b64f,.9).fillRect(x0+(qte.zoneC-qte.zoneW/2)*w,y0-2,qte.zoneW*w,10);
+  gfx.fillStyle(0xe8f7f1,1).fillRect(x0+qte.needle*w-1,y0-5,2,16);
+ }
+ fxList.forEach(f=>{f.life-=dt;gfx.lineStyle(3,0xefe7d5,Math.max(0,f.life/.16));
+  gfx.beginPath();gfx.arc(f.x,f.y,42,f.dir-1,f.dir+1);gfx.strokePath()});
+ fxList=fxList.filter(f=>f.life>0);
+ // HUD
+ document.getElementById('timer').textContent=fmt(s.t);
+ document.getElementById('phase').textContent=
+  lastMe&&lastMe.dead?'脱落 — 観戦中':s.dragon?(s.dragon.hp>0?'竜との戦い':'決着'):s.t>=world.unsealAt-30?'封印がゆらぐ':'探索と成長';
+ document.getElementById('contrib').innerHTML=(s.dragon&&(s.shares[0]||s.shares[1]))?
+  `<span style="color:#e0b64f">●金 ${s.shares[0]}%</span> <span style="color:#c05a5a">●紅 ${s.shares[1]}%</span>(竜与ダメ貢献)`:'';
+ if(lastMe&&lastSelf){
+  document.getElementById('hp').style.width=Math.max(0,lastMe.hp/lastMe.maxHp*100)+'%';
+  document.getElementById('mp').style.width=(lastSelf.mp||0)+'%';
+  document.getElementById('lv').textContent=lastSelf.lv;
+  document.getElementById('gold').textContent=lastSelf.gold;
+  document.getElementById('xpt').textContent=`XP ${lastSelf.xp}/${lastSelf.xpNeed}`;
+  document.getElementById('xp').style.width=Math.min(100,lastSelf.xp/lastSelf.xpNeed*100)+'%';
+  const cds=lastSelf.cd||[0,0,0,0];
+  document.getElementById('skills').innerHTML=mySkills.map((sk,i)=>
+   `<div class="sk"><b>${['W/1','E/2','R/3','T/4'][i]}</b>${sk.jp}<span style="font-size:9px;color:#7ab0d0">${sk.mp}</span>`+
+   `${cds[i]>0?`<div class="cd">${cds[i].toFixed(1)}</div>`:''}</div>`).join('')+
+   `<div class="sk"><b>5</b>薬×${lastSelf.potions}</div>`;
+  const hint=document.getElementById('hint');
+  if(qte)hint.innerHTML=`<b style="color:#5bc8b0">解除中</b> <kbd>F</kbd>で金ゾーンに針を止めろ(${qte.hits}/3) — 移動で中断`;
+  else if(lastSelf.nearGim)hint.innerHTML=`<b style="color:#5bc8b0">封印装置</b> <kbd>F</kbd>で解除開始(解除でチームの対竜与ダメ+12%)`;
+  else if(lastSelf.nearMerchant)hint.innerHTML=`<b style="color:#e0b64f">商人</b> <kbd>F</kbd>ポーション(80G) / <kbd>G</kbd>砥石+8%(${lastSelf.whetPrice}G) — 所持${lastSelf.gold}G`;
+  else hint.innerHTML='';
+ }
+}
+</script>
+</body>
+</html>

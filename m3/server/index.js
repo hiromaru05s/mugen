@@ -1,0 +1,691 @@
+// 夢幻の森 M3 サーバー — ロビー + サーバーサイドBot + RP永続化 (SPEC §6 M3の身内テスト配布準備)
+// M2(マッチループ)に追加: 待機ロビー(開始時にBotで3v3に自動補充=「身内3人で成立」) /
+// Bot AI(予兆回避・視界準拠索敵・職別スキル・ファーム・装置解除・竜優先) /
+// RP永続化(data/players.json。SUPABASE_URL設定時はSupabase RESTへupsert)
+'use strict';
+const { Server, Room } = require('colyseus');
+const fs = require('fs');
+const path = require('path');
+const DEV = process.env.M2_DEV === '1'; // テスト用チート(本番では無効)
+
+/* ================= RP永続化 ================= */
+const DB_PATH = path.join(__dirname, 'data', 'players.json');
+function loadDB() { try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); } catch { return {}; } }
+function saveDB(db) {
+  try { fs.mkdirSync(path.dirname(DB_PATH), { recursive: true }); fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 1)); } catch (e) { console.error('[db]', e.message); }
+  // Supabase接続時はこちらが本線(テーブル players: name text pk, rp int, matches int, wins int)
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
+    const rows = Object.entries(db).map(([name, v]) => ({ name, ...v }));
+    fetch(`${process.env.SUPABASE_URL}/rest/v1/players`, {
+      method: 'POST',
+      headers: { apikey: process.env.SUPABASE_KEY, Authorization: `Bearer ${process.env.SUPABASE_KEY}`,
+        'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(rows),
+    }).catch(e => console.error('[supabase]', e.message));
+  }
+}
+const BOT_NAMES = ['モリビト', 'コダマ', 'ヤミガラス', 'ツユクサ', 'ホタルビ', 'イバラ'];
+
+/* ================= 定数 ================= */
+const CFG = {
+  mapR: 1400, tick: 1 / 20, viewR: 750, witherViewR: 350, revealAtk: 1.4, revealHit: 0.8,
+  treeCount: 110, bushCount: 40, mobCount: 26, chestCount: 18,
+  castRange: 380, mpMax: 100, mpRegen: 6,
+  matchLen: 480, unsealAt: 240, witherStart: 60, coreR: 240,
+  dragonHp: 3500, potionHeal: 110, potionPrice: 80, whetBase: 120,
+};
+const CLASSES = {
+  warrior: { hp: 340, spd: 150, range: 46, atk: 26, atkCd: .7 },
+  mage:    { hp: 230, spd: 145, range: 330, atk: 30, atkCd: .9, projSpd: 430, projR: 7 },
+  thief:   { hp: 250, spd: 165, range: 44, atk: 24, atkCd: .55 },
+  priest:  { hp: 260, spd: 140, range: 40, atk: 10, atkCd: .9 },
+  ranger:  { hp: 210, spd: 150, range: 430, atk: 38, atkCd: 1.25, projSpd: 560, projR: 5 },
+};
+const SKILLS = {
+  warrior: {
+    1: { jp: '突進',   cd: 6,  mp: 15, fx: [{ type: 'dash', spd: 620, dur: .22, impactMul: 1.2 }] },
+    2: { jp: '咆哮',   cd: 11, mp: 20, fx: [{ type: 'modifyStat', stat: 'buff', dur: 5, radius: 170 }] },
+    3: { jp: '盾打',   cd: 10, mp: 20, fx: [{ type: 'meleeArc', range: 70, arc: 1.0, dmgMul: .8, status: { stun: 1.2 } }] },
+    4: { jp: '大斬撃', cd: 14, mp: 30, fx: [{ type: 'meleeArc', range: 72, arc: 1.7, dmgMul: 2 }] },
+  },
+  mage: {
+    1: { jp: 'ブリンク', cd: 7,  mp: 20, fx: [{ type: 'teleport', maxDist: 180 }] },
+    2: { jp: '減速域',   cd: 10, mp: 25, fx: [{ type: 'zone', kind: 'slow', r: 95, life: 4 }] },
+    3: { jp: '魔氷壁',   cd: 14, mp: 30, fx: [{ type: 'summonWall', count: 3, gap: 40, r: 20, life: 4.5, maxDist: 200 }] },
+    4: { jp: '爆裂',     cd: 9,  mp: 35, fx: [{ type: 'zone', kind: 'nuke', r: 85, tele: .6, dmg: 90 }] },
+  },
+  thief: {
+    1: { jp: '罠',   cd: 8,  mp: 20, fx: [{ type: 'summonTrap', r: 26, life: 40, dmg: 55, slow: 1.8 }] },
+    2: { jp: '隠密', cd: 12, mp: 25, fx: [{ type: 'stealth', dur: 4 }] },
+    3: { jp: '検知', cd: 14, mp: 20, fx: [{ type: 'revealEnemies', radius: 450, dur: 3 }] },
+    4: { jp: '毒刃', cd: 10, mp: 15, fx: [{ type: 'venom', charges: 3, dot: 9, dur: 3 }] },
+  },
+  priest: {
+    1: { jp: '祝福',   cd: 9,  mp: 25, fx: [{ type: 'healAllies', amount: 90, radius: 170 }] },
+    2: { jp: '聖域',   cd: 14, mp: 30, fx: [{ type: 'zone', kind: 'heal', r: 90, life: 4, hps: 22 }] },
+    3: { jp: '聖障壁', cd: 16, mp: 30, fx: [{ type: 'modifyStat', stat: 'shield', dur: 4, radius: 170 }] },
+    4: { jp: '天光',   cd: 12, mp: 25, fx: [{ type: 'healLowest', amount: 180 }] },
+  },
+  ranger: {
+    1: { jp: '狙撃',   cd: 10, mp: 25, fx: [{ type: 'projectile', spd: 700, r: 5, dmgMul: 2.2, selfReveal: 1.4 }] },
+    2: { jp: '跳躍',   cd: 9,  mp: 15, fx: [{ type: 'dash', spd: 830, dur: .18, back: true }] },
+    3: { jp: 'マーク', cd: 12, mp: 15, fx: [{ type: 'markTarget', pickR: 120, dur: 12 }] },
+    4: { jp: '煙幕',   cd: 16, mp: 25, fx: [{ type: 'zone', kind: 'smoke', r: 80, life: 5, atSelf: true }] },
+  },
+};
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const ang = (a, b) => Math.atan2(b.y - a.y, b.x - a.x);
+function angleDiff(a, b) { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
+const polar = (r, th) => ({ x: Math.cos(th) * r, y: Math.sin(th) * r });
+
+class ForestRoom extends Room {
+  onCreate() {
+    this.maxClients = 6;
+    this.setPatchRate(0);
+    this.world = this.makeWorld();
+    this.units = new Map();
+    this.projs = []; this.zones = []; this.walls = []; this.traps = [];
+    this.dragon = null; this.dragonDmg = [0, 0]; this.gimmickBuff = [0, 0];
+    this.whetPrice = [CFG.whetBase, CFG.whetBase]; // チーム別価格逓増
+    this.nextTeam = 0; this.t = 0; this.witherR = CFG.mapR; this.over = false; this.result = null;
+    this.phase = 'lobby'; this.botIdx = 0;
+
+    this.onMessage('start', () => { if (this.phase === 'lobby') this.startMatch(); });
+    this.onMessage('ready', (client) => {
+      const u = this.units.get(client.sessionId); if (!u) return;
+      client.send('init', {
+        id: u.id, team: u.team, cls: u.cls, mapR: CFG.mapR, coreR: CFG.coreR,
+        matchLen: CFG.matchLen, unsealAt: CFG.unsealAt,
+        trees: this.world.trees, bushes: this.world.bushes,
+        merchants: this.world.merchants, gimmicks: this.world.gimmicks.map(g => ({ x: g.x, y: g.y })),
+        stats: CLASSES[u.cls],
+        skills: [1, 2, 3, 4].map(n => ({ n, jp: SKILLS[u.cls][n].jp, cd: SKILLS[u.cls][n].cd, mp: SKILLS[u.cls][n].mp })),
+      });
+    });
+    this.onMessage('input', (client, msg) => {
+      const u = this.units.get(client.sessionId);
+      if (!u || typeof msg !== 'object' || msg === null) return;
+      u.input = {
+        mx: Math.max(-1, Math.min(1, +msg.mx || 0)),
+        my: Math.max(-1, Math.min(1, +msg.my || 0)),
+        atk: !!msg.atk,
+        aim: typeof msg.aim === 'number' && isFinite(msg.aim) ? msg.aim : u.facing,
+      };
+    });
+    this.onMessage('cast', (client, msg) => {
+      if (this.phase !== 'live') return;
+      const u = this.units.get(client.sessionId);
+      if (!u || u.dead || this.over || typeof msg !== 'object' || msg === null) return;
+      const slot = [1, 2, 3, 4].includes(+msg.slot) ? +msg.slot : 0;
+      if (!slot) return;
+      let tx = isFinite(+msg.tx) ? +msg.tx : u.x, ty = isFinite(+msg.ty) ? +msg.ty : u.y;
+      const d = Math.hypot(tx - u.x, ty - u.y);
+      if (d > CFG.castRange) { tx = u.x + (tx - u.x) / d * CFG.castRange; ty = u.y + (ty - u.y) / d * CFG.castRange; }
+      this.castSkill(u, slot, tx, ty);
+    });
+    this.onMessage('potion', (client) => {
+      const u = this.units.get(client.sessionId);
+      if (!u || u.dead || this.over || u.potions <= 0 || u.hp >= this.maxHpOf(u)) return;
+      u.potions--; u.hp = Math.min(this.maxHpOf(u), u.hp + CFG.potionHeal);
+    });
+    this.onMessage('buy', (client, msg) => {
+      const u = this.units.get(client.sessionId);
+      if (!u || u.dead || this.over) return;
+      if (!this.world.merchants.some(m => dist(u, m) < 70)) return; // 商人の近くでのみ
+      if (msg && msg.item === 'potion' && u.gold >= CFG.potionPrice) { u.gold -= CFG.potionPrice; u.potions++; }
+      if (msg && msg.item === 'whet' && u.gold >= this.whetPrice[u.team]) {
+        u.gold -= this.whetPrice[u.team]; u.whet++; this.whetPrice[u.team] = Math.round(this.whetPrice[u.team] * 1.5);
+      }
+    });
+    // 封印装置: クライアント実行QTE + サーバー検証(所要時間下限・近接・被弾なし — SPEC §4)
+    this.onMessage('gimStart', (client) => {
+      const u = this.units.get(client.sessionId);
+      if (!u || u.dead || this.over) return;
+      const g = this.world.gimmicks.find(g2 => !g2.unlocked && dist(u, g2) < 60);
+      if (g) u.gim = { g, t0: this.t, hitAt: u.lastHitT || -1 };
+    });
+    this.onMessage('gimDone', (client) => {
+      const u = this.units.get(client.sessionId);
+      if (!u || u.dead || this.over || !u.gim) return;
+      const { g, t0, hitAt } = u.gim; u.gim = null;
+      const need = u.cls === 'thief' ? 2.0 : 3.2; // 盗賊は速い
+      if (g.unlocked || this.t - t0 < need) return;             // 所要時間下限
+      if (dist(u, g) >= 60) return;                              // まだ装置の傍か
+      if ((u.lastHitT || -1) > hitAt) return;                    // 解除中に被弾していないか
+      g.unlocked = true; g.by = u.team;
+      this.gimmickBuff[u.team] += .12;
+      for (const a of this.units.values()) if (a.team === u.team && !a.dead) this.gainXp(a, 30, 120 / this.aliveOf(u.team).length);
+      this.broadcast('fx', { kind: 'gimmick', x: g.x, y: g.y, team: u.team });
+    });
+    if (DEV) {
+      this.onMessage('devTeleport', (client, msg) => { const u = this.units.get(client.sessionId); if (u) { u.x = +msg.x || 0; u.y = +msg.y || 0; } });
+      this.onMessage('devTime', (client, msg) => { this.t = +msg.t || this.t; });
+      this.onMessage('devDragonHp', (client, msg) => { if (this.dragon) this.dragon.hp = +msg.hp || 1; });
+      this.onMessage('devGold', (client, msg) => { const u = this.units.get(client.sessionId); if (u) u.gold = +msg.gold || 0; });
+    }
+    this.setSimulationInterval(() => this.tick(CFG.tick), 1000 * CFG.tick);
+    console.log('[forest:m3] room created', this.roomId, DEV ? '(DEV)' : '');
+  }
+
+  makeWorld() {
+    const trees = [], bushes = [], mobs = [], chests = [], merchants = [], gimmicks = [];
+    for (let i = 0; i < CFG.treeCount; i++) { const p = polar(rnd(CFG.coreR + 100, CFG.mapR - 60), rnd(0, 7)); trees.push({ x: p.x, y: p.y, r: rnd(16, 30) }); }
+    for (let i = 0; i < CFG.bushCount; i++) { const p = polar(rnd(CFG.coreR + 90, CFG.mapR - 80), rnd(0, 7)); bushes.push({ x: p.x, y: p.y, r: rnd(34, 52) }); }
+    for (let i = 0; i < CFG.mobCount; i++) {
+      const r = rnd(CFG.coreR + 150, CFG.mapR - 120), p = polar(r, rnd(0, 7));
+      const deep = 1.7 - r / CFG.mapR; // 深いほど強い
+      mobs.push({ id: 'm' + i, x: p.x, y: p.y, home: { x: p.x, y: p.y }, r: 14, hp: 70 * deep, maxHp: 70 * deep, atk: 12 * deep, xp: Math.round(24 * deep), gold: Math.round(12 * deep), spd: 110, tAtk: 0, tele: null });
+    }
+    for (let i = 0; i < CFG.chestCount; i++) {
+      const r = rnd(CFG.coreR + 130, CFG.mapR - 150), p = polar(r, rnd(0, 7));
+      chests.push({ id: 'c' + i, x: p.x, y: p.y, gold: Math.round(rnd(30, 90) * (1.6 - r / CFG.mapR)), open: false });
+    }
+    for (let i = 0; i < 3; i++) { const p = polar(rnd(CFG.mapR * .45, CFG.mapR * .6), i * Math.PI * 2 / 3 + rnd(-.4, .4)); merchants.push({ x: p.x, y: p.y }); }
+    for (let i = 0; i < 3; i++) { const p = polar(rnd(CFG.coreR + 220, CFG.mapR * .42), i * Math.PI * 2 / 3 + rnd(-.5, .5) + .7); gimmicks.push({ x: p.x, y: p.y, unlocked: false, by: -1 }); }
+    return { trees, bushes, mobs, chests, merchants, gimmicks };
+  }
+
+  onJoin(client, options) {
+    const team = this.nextTeam++ % 2;
+    const cls = CLASSES[options && options.cls] ? options.cls : 'warrior';
+    const name = ((options && String(options.name || '')) || 'player').slice(0, 12) || 'player';
+    this.units.set(client.sessionId, this.mkUnit(client.sessionId, team, cls, name, false));
+    console.log('[forest:m3] join', client.sessionId, 'team', team, cls, name);
+  }
+  mkUnit(id, team, cls, name, bot) {
+    const C = CLASSES[cls];
+    const base = polar(CFG.mapR - 140, team === 0 ? Math.PI / 4 : Math.PI + Math.PI / 4);
+    return {
+      id, team, cls, name, bot,
+      x: base.x + rnd(-40, 40), y: base.y + rnd(-40, 40), r: 15,
+      hp: C.hp, mp: CFG.mpMax, lv: 1, xp: 0, gold: 0, potions: 3, whet: 0,
+      facing: 0, atkT: 0, s1T: 0, s2T: 0, s3T: 0, s4T: 0,
+      revealT: 0, stealth: 0, slowT: 0, buffT: 0, shieldT: 0, markT: 0, stunT: 0, poisonT: 0, poisonSrc: null, venom: 0,
+      dash: null, dead: false, lastHitT: -1, gim: null,
+      think: 0, botGimT: 0, wp: null, // Bot用
+      input: { mx: 0, my: 0, atk: false, aim: 0 },
+    };
+  }
+  onLeave(client) { this.units.delete(client.sessionId); }
+
+  /* ---------- マッチ開始: Botで3v3に補充 ---------- */
+  startMatch() {
+    const COMP = ['warrior', 'priest', 'ranger', 'mage', 'thief', 'warrior'];
+    for (const team of [0, 1]) {
+      let n = [...this.units.values()].filter(u => u.team === team).length;
+      while (n < 3) {
+        const cls = COMP[(this.botIdx + n) % COMP.length];
+        const bot = this.mkUnit('bot' + (this.botIdx), team, cls, BOT_NAMES[this.botIdx % BOT_NAMES.length], true);
+        this.units.set(bot.id, bot);
+        this.botIdx++; n++;
+      }
+    }
+    this.phase = 'live'; this.t = 0;
+    this.lock(); // 開始後は参加不可
+    this.broadcast('fx', { kind: 'matchStart' });
+    console.log('[forest:m3] match start —', [...this.units.values()].map(u => `${u.name}(${u.cls}${u.bot ? ':bot' : ''})t${u.team}`).join(' '));
+  }
+
+  /* ---------- 成長 ---------- */
+  lvMul(u) { return 1 + .13 * (u.lv - 1); }
+  maxHpOf(u) { return Math.round(CLASSES[u.cls].hp * this.lvMul(u)); }
+  atkOf(u) { return CLASSES[u.cls].atk * this.lvMul(u) * (1 + u.gold / 900) * (1 + .08 * u.whet) * (u.buffT > 0 ? 1.3 : 1); }
+  spdOf(u) { return CLASSES[u.cls].spd * (u.slowT > 0 ? .55 : 1); }
+  xpNeed(u) { return 60 + u.lv * 45; }
+  gainXp(u, xp, gold) {
+    u.xp += xp; u.gold += Math.round(gold * (u.cls === 'thief' ? 1.5 : 1));
+    while (u.xp >= this.xpNeed(u)) { u.xp -= this.xpNeed(u); u.lv++; u.hp = Math.min(this.maxHpOf(u), u.hp + 60); }
+  }
+  aliveOf(team) { return [...this.units.values()].filter(a => a.team === team && !a.dead); }
+
+  /* ---------- 視界 (枯死域=視界悪化込み) ---------- */
+  bushOf(u) { for (const b of this.world.bushes) if (dist(u, b) < b.r) return b; return null; }
+  smokeOf(u) { for (const z of this.zones) if (z.kind === 'smoke' && dist(u, z) < z.r) return z; return null; }
+  viewR(v) { return Math.hypot(v.x, v.y) > this.witherR ? CFG.witherViewR : CFG.viewR; }
+  losBlocked(a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+    if (!L2) return false;
+    for (const arr of [this.world.trees, this.walls]) for (const t of arr) {
+      let s = ((t.x - a.x) * dx + (t.y - a.y) * dy) / L2; s = s < 0 ? 0 : s > 1 ? 1 : s;
+      const px = a.x + s * dx - t.x, py = a.y + s * dy - t.y;
+      if (px * px + py * py < t.r * t.r) return true;
+    }
+    return false;
+  }
+  seenBy(team, u) {
+    if (u.stealth > 0) return false;
+    if (u.revealT > 0 || u.markT > 0) return true;
+    const cover = this.bushOf(u) || this.smokeOf(u);
+    for (const v of this.units.values()) {
+      if (v.team !== team || v.dead) continue;
+      if (dist(v, u) >= this.viewR(v)) continue;
+      if (cover ? dist(v, cover) < cover.r + 24 : !this.losBlocked(v, u)) return true;
+    }
+    return false;
+  }
+
+  /* ---------- スキル(M1と同一プリミティブ) ---------- */
+  castSkill(u, slot, tx, ty) {
+    const S = SKILLS[u.cls][slot];
+    if (!S || u['s' + slot + 'T'] > 0 || u.stunT > 0 || u.mp < S.mp) return;
+    u['s' + slot + 'T'] = S.cd; u.mp -= S.mp;
+    const dir = Math.atan2(ty - u.y, tx - u.x) || u.facing;
+    for (const fx of S.fx) this.runFx(u, fx, dir, tx, ty);
+    this.broadcast('fx', { kind: 'cast', cls: u.cls, slot, x: u.x, y: u.y, tx, ty });
+  }
+  runFx(u, fx, dir, tx, ty) {
+    const atk = this.atkOf(u);
+    switch (fx.type) {
+      case 'dash': u.dash = { dir: fx.back ? dir + Math.PI : dir, spd: fx.spd, t: fx.dur, impactMul: fx.impactMul || 0 }; u.stealth = 0; break;
+      case 'teleport': { const d = Math.min(fx.maxDist, Math.hypot(tx - u.x, ty - u.y) || fx.maxDist);
+        u.x += Math.cos(dir) * d; u.y += Math.sin(dir) * d; this.collide(u); break; }
+      case 'projectile':
+        this.projs.push({ x: u.x, y: u.y, vx: Math.cos(dir) * fx.spd, vy: Math.sin(dir) * fx.spd, r: fx.r, life: 1.1, src: u, dmg: atk * fx.dmgMul, snipe: true });
+        if (fx.selfReveal) u.revealT = Math.max(u.revealT, fx.selfReveal); break;
+      case 'meleeArc':
+        u.revealT = Math.max(u.revealT, CFG.revealAtk);
+        for (const h of this.hostilesOf(u)) {
+          if (dist(u, h) < fx.range + (h.r || 14) && Math.abs(angleDiff(ang(u, h), dir)) < fx.arc) {
+            this.hit(u, h, atk * fx.dmgMul);
+            if (fx.status && fx.status.stun && h.stunT !== undefined) h.stunT = Math.max(h.stunT, fx.status.stun);
+          }
+        } break;
+      case 'zone': { const zx = fx.atSelf ? u.x : tx, zy = fx.atSelf ? u.y : ty;
+        this.zones.push({ x: zx, y: zy, r: fx.r, team: u.team, kind: fx.kind, life: fx.life || fx.tele || 1, tele: fx.tele || 0, dmg: fx.dmg || 0, hps: fx.hps || 0, src: u }); break; }
+      case 'summonWall': { const wd = Math.min(fx.maxDist, Math.hypot(tx - u.x, ty - u.y) || 120);
+        const px = u.x + Math.cos(dir) * wd, py = u.y + Math.sin(dir) * wd;
+        for (let i = -(fx.count >> 1); i <= (fx.count >> 1); i++)
+          this.walls.push({ x: px + Math.cos(dir + Math.PI / 2) * i * fx.gap, y: py + Math.sin(dir + Math.PI / 2) * i * fx.gap, r: fx.r, life: fx.life });
+        break; }
+      case 'summonTrap': this.traps.push({ x: u.x, y: u.y, r: fx.r, team: u.team, src: u, life: fx.life, dmg: fx.dmg, slow: fx.slow }); break;
+      case 'stealth': u.stealth = fx.dur; break;
+      case 'revealEnemies': for (const h of this.units.values()) if (h.team !== u.team && !h.dead && dist(u, h) < fx.radius) h.revealT = Math.max(h.revealT, fx.dur); break;
+      case 'markTarget': { let bt = null, bd = 1e9;
+        for (const h of this.units.values()) {
+          if (h.team === u.team || h.dead || !this.seenBy(u.team, h)) continue;
+          const d2 = Math.hypot(h.x - tx, h.y - ty);
+          if (d2 < fx.pickR && d2 < bd) { bd = d2; bt = h; }
+        }
+        if (bt) bt.markT = fx.dur; else { u.s3T = 1; u.mp += SKILLS[u.cls][3].mp; } break; }
+      case 'modifyStat': for (const a of this.units.values()) if (a.team === u.team && !a.dead && dist(a, u) < fx.radius) {
+          if (fx.stat === 'buff') a.buffT = fx.dur; if (fx.stat === 'shield') a.shieldT = fx.dur; } break;
+      case 'healAllies': for (const a of this.units.values()) if (a.team === u.team && !a.dead && dist(a, u) < fx.radius) a.hp = Math.min(this.maxHpOf(a), a.hp + fx.amount); break;
+      case 'healLowest': { let m = null;
+        for (const a of this.units.values()) if (a.team === u.team && !a.dead && (!m || a.hp / this.maxHpOf(a) < m.hp / this.maxHpOf(m))) m = a;
+        if (m) m.hp = Math.min(this.maxHpOf(m), m.hp + fx.amount); break; }
+      case 'venom': u.venom = fx.charges; u.venomDur = fx.dur; break;
+    }
+  }
+  hostilesOf(u) {
+    const hs = [];
+    for (const h of this.units.values()) if (h.team !== u.team && !h.dead && h.stealth <= 0) hs.push(h);
+    for (const m of this.world.mobs) if (m.hp > 0) hs.push(m);
+    if (this.dragon && this.dragon.hp > 0) hs.push(this.dragon);
+    return hs;
+  }
+  // プレイヤー/モブ/竜を対象に取れる統一ダメージ入口
+  hit(src, tgt, amt) {
+    if (tgt.isDragon) return this.damageDragon(src, amt);
+    if (tgt.id && this.units.has(tgt.id)) return this.damage(src, tgt, amt);
+    this.damageMob(src, tgt, amt);
+  }
+
+  /* ---------- Bot AI (プロトタイプのaiThink移植) ---------- */
+  setMove(u, a) { if (a == null) { u.input.mx = 0; u.input.my = 0; } else { u.input.mx = Math.cos(a); u.input.my = Math.sin(a); } }
+  botThink(u, dt) {
+    u.think -= dt; if (u.think > 0) return; u.think = .22;
+    u.input.atk = false;
+    if (u.dead || u.stunT > 0) { this.setMove(u, null); return; }
+    const mh = this.maxHpOf(u);
+    // 1) 予兆回避が最優先(このゲームの文法)
+    const zz = this.zones.find(z => z.kind === 'nuke' && z.tele > 0 && z.team !== u.team && dist(u, z) < z.r + u.r + 8);
+    if (zz) { this.setMove(u, ang(zz, u)); u.think = .1; return; }
+    if (u.potions > 0 && u.hp < mh * .3) { u.potions--; u.hp = Math.min(mh, u.hp + CFG.potionHeal); }
+    const mates = this.aliveOf(u.team), leader = mates[0];
+    // 2) 僧侶は回復最優先
+    if (u.cls === 'priest') {
+      if (u.s1T <= 0 && mates.some(a => a.hp < this.maxHpOf(a) * .65 && dist(a, u) < 170)) this.castSkill(u, 1, u.x, u.y);
+      const hurt2 = mates.filter(a => a.hp < this.maxHpOf(a) * .5);
+      if (u.s2T <= 0 && hurt2.length >= 2) this.castSkill(u, 2, hurt2[0].x, hurt2[0].y);
+      if (u.s3T <= 0 && hurt2.length >= 2) this.castSkill(u, 3, u.x, u.y);
+      if (u.s4T <= 0) { const m2 = mates.find(a => a.hp < this.maxHpOf(a) * .35); if (m2) this.castSkill(u, 4, m2.x, m2.y); }
+    }
+    // 3) 索敵(視界準拠)
+    const ranged = u.cls === 'mage' || u.cls === 'ranger';
+    const range = CLASSES[u.cls].range;
+    let tgt = null, best = 1e9;
+    for (const h of this.hostilesOf(u)) {
+      if (u.cls === 'priest' && !h.isDragon) continue;
+      if (!h.isDragon && h.id && this.units.has(h.id) && !this.seenBy(u.team, h)) continue; // 敵ユニットは可視のみ
+      const d = dist(u, h);
+      const cap = h.isDragon ? 480 : (ranged ? 420 : 240);
+      const pref = h.isDragon && this.dragon ? d * .3 : d; // 解禁後は竜を優先
+      if (d < cap && pref < best) { best = pref; tgt = h; }
+    }
+    // 4) 逃走(瀕死・相手が竜以外)
+    if (u.hp < mh * .28 && tgt && !tgt.isDragon) {
+      this.setMove(u, ang(tgt, u));
+      if (u.cls === 'thief' && u.s2T <= 0) this.castSkill(u, 2, u.x, u.y);
+      if (u.cls === 'ranger' && u.s2T <= 0) this.castSkill(u, 2, tgt.x, tgt.y);
+      return;
+    }
+    if (tgt) {
+      const d = dist(u, tgt), inR = d < range + (tgt.r || 14) - 4;
+      const isPvp = !tgt.isDragon && tgt.id && this.units.has(tgt.id);
+      if (inR || (ranged && d < range)) { u.input.atk = true; u.input.aim = ang(u, tgt); }
+      if (u.cls === 'warrior') {
+        if (u.s1T <= 0 && d < 260 && d > 90) this.castSkill(u, 1, tgt.x, tgt.y);
+        if (inR && u.s3T <= 0 && isPvp) this.castSkill(u, 3, tgt.x, tgt.y);
+        if (inR && u.s4T <= 0) this.castSkill(u, 4, tgt.x, tgt.y);
+        if (inR && u.s2T <= 0 && mates.length > 1) this.castSkill(u, 2, u.x, u.y);
+      }
+      if (u.cls === 'mage') {
+        if (u.s2T <= 0 && d < 300 && isPvp) this.castSkill(u, 2, tgt.x, tgt.y);
+        if (u.s4T <= 0 && d < 330) this.castSkill(u, 4, tgt.x, tgt.y);
+      }
+      if (u.cls === 'thief') {
+        if (u.s4T <= 0 && d < 120) this.castSkill(u, 4, u.x, u.y);
+        if (u.s3T <= 0 && d < 350 && isPvp) this.castSkill(u, 3, u.x, u.y);
+      }
+      if (u.cls === 'ranger') {
+        if (u.s1T <= 0 && d > 180 && d < range) this.castSkill(u, 1, tgt.x, tgt.y);
+        if (u.s3T <= 0 && d < 450 && isPvp) this.castSkill(u, 3, tgt.x, tgt.y);
+      }
+      this.setMove(u, d > (ranged ? range * .7 : range * .6) ? ang(u, tgt) : null);
+      if (ranged && d < 150) { this.setMove(u, ang(tgt, u)); // kite
+        if (u.cls === 'ranger' && u.s4T <= 0 && u.hp < mh * .5) this.castSkill(u, 4, u.x, u.y); }
+    } else {
+      // 5) 盗賊: 封印装置の解除(5秒チャネル)
+      if (u.cls === 'thief') {
+        const g = this.world.gimmicks.find(g2 => !g2.unlocked && dist(u, g2) < 420);
+        if (g) {
+          if (dist(u, g) > 46) { this.setMove(u, ang(u, g)); return; }
+          this.setMove(u, null); u.botGimT += .22;
+          if (u.botGimT >= 5) {
+            u.botGimT = 0; g.unlocked = true; g.by = u.team;
+            this.gimmickBuff[u.team] += .12;
+            for (const a of mates) this.gainXp(a, 30, 120 / mates.length);
+            this.broadcast('fx', { kind: 'gimmick', x: g.x, y: g.y, team: u.team });
+          }
+          return;
+        }
+      }
+      // 6) リーダー追従 or 時間とともに深部へ
+      if (u !== leader && leader && !leader.dead) {
+        this.setMove(u, dist(u, leader) > 130 ? ang(u, leader) : null);
+      } else {
+        if (!u.wp || dist(u, u.wp) < 60) {
+          const depth = this.dragon ? rnd(0, CFG.coreR + 150)
+            : Math.max(CFG.coreR + 100, Math.min(CFG.mapR - 160, CFG.mapR * (1 - this.t / CFG.matchLen) - 200));
+          u.wp = polar(rnd(Math.max(60, depth - 250), depth), rnd(0, 7));
+        }
+        this.setMove(u, ang(u, u.wp));
+      }
+    }
+    // 7) 枯死域からの脱出は全てに優先
+    if (Math.hypot(u.x, u.y) > this.witherR - 60) this.setMove(u, ang(u, { x: 0, y: 0 }));
+  }
+
+  /* ---------- tick ---------- */
+  tick(dt) {
+    if (this.phase === 'lobby') { this.broadcastSnapshots(); return; }
+    if (this.over) { this.broadcastSnapshots(); return; }
+    this.t += dt;
+    for (const u of this.units.values()) if (u.bot) this.botThink(u, dt);
+    if (this.t > CFG.witherStart)
+      this.witherR = Math.max(CFG.coreR + 220, CFG.mapR * (1 - (this.t - CFG.witherStart) / (CFG.matchLen - CFG.witherStart) * .95));
+    if (!this.dragon && this.t >= CFG.unsealAt) {
+      this.dragon = { isDragon: true, x: 0, y: 0, r: 64, hp: CFG.dragonHp, maxHp: CFG.dragonHp, tAtk: 2, phase: 0, team: -1 };
+      this.broadcast('fx', { kind: 'unseal' });
+    }
+    const units = [...this.units.values()];
+    for (const u of units) {
+      if (u.dead) continue;
+      u.atkT -= dt; u.s1T -= dt; u.s2T -= dt; u.s3T -= dt; u.s4T -= dt;
+      u.revealT -= dt; u.stealth -= dt; u.slowT -= dt; u.buffT -= dt; u.shieldT -= dt; u.markT -= dt; u.stunT -= dt;
+      u.mp = Math.min(CFG.mpMax, u.mp + CFG.mpRegen * dt);
+      if (u.poisonT > 0) { u.poisonT -= dt; u.hp -= 9 * dt; if (u.hp <= 0) { this.kill(u.poisonSrc, u); continue; } }
+      if (u.dash) {
+        u.x += Math.cos(u.dash.dir) * u.dash.spd * dt; u.y += Math.sin(u.dash.dir) * u.dash.spd * dt;
+        u.dash.t -= dt;
+        if (u.dash.t <= 0) { if (u.dash.impactMul) for (const h of this.hostilesOf(u)) if (dist(u, h) < 60) this.hit(u, h, this.atkOf(u) * u.dash.impactMul); u.dash = null; }
+      } else if (u.stunT <= 0) {
+        const l = Math.hypot(u.input.mx, u.input.my);
+        if (l > 0) { u.x += u.input.mx / l * this.spdOf(u) * dt; u.y += u.input.my / l * this.spdOf(u) * dt; u.facing = Math.atan2(u.input.my, u.input.mx); }
+        if (u.input.atk && u.atkT <= 0) this.doAttack(u, u.input.aim);
+      }
+      for (const z of this.zones) {
+        if (z.tele > 0) continue;
+        if (z.kind === 'slow' && z.team !== u.team && dist(u, z) < z.r) u.slowT = Math.max(u.slowT, .3);
+        if (z.kind === 'heal' && z.team === u.team && dist(u, z) < z.r) u.hp = Math.min(this.maxHpOf(u), u.hp + z.hps * dt);
+      }
+      for (const tr of this.traps) {
+        if (tr.team === u.team || dist(u, tr) >= tr.r) continue;
+        tr.life = 0; this.damage(tr.src, u, tr.dmg); u.slowT = Math.max(u.slowT, tr.slow);
+      }
+      // 宝箱(自動オープン・チーム分配)
+      for (const c of this.world.chests) {
+        if (c.open || dist(u, c) >= 40) continue;
+        c.open = true;
+        const mates = this.aliveOf(u.team);
+        for (const a of mates) this.gainXp(a, 10, c.gold / mates.length);
+      }
+      // 枯死DoT
+      if (Math.hypot(u.x, u.y) > this.witherR) { u.hp -= 22 * dt; if (u.hp <= 0) { this.kill(null, u); continue; } }
+      // 装置解除の中断判定(離れたら無効)
+      if (u.gim && dist(u, u.gim.g) >= 60) u.gim = null;
+      this.collide(u);
+    }
+    // 弾
+    this.projs = this.projs.filter(pr => {
+      pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.life -= dt;
+      if (pr.life <= 0) return false;
+      for (const arr of [this.world.trees, this.walls]) for (const t of arr) if (dist(pr, t) < t.r) return false;
+      for (const h of this.hostilesOf(pr.src)) {
+        if (dist(pr, h) < (h.r || 14) + pr.r) { this.hit(pr.src, h, pr.dmg); return false; }
+      }
+      return true;
+    });
+    // ゾーン
+    this.zones = this.zones.filter(z => {
+      if (z.tele > 0) {
+        z.tele -= dt;
+        if (z.tele <= 0 && z.kind === 'nuke') {
+          for (const u of units) if (!u.dead && u.team !== z.team && dist(u, z) < z.r + u.r) this.damage(z.src, u, z.dmg);
+          for (const m of this.world.mobs) if (m.hp > 0 && dist(m, z) < z.r + m.r) this.damageMob(z.src, m, z.dmg);
+          if (z.team >= 0 && this.dragon && this.dragon.hp > 0 && dist(this.dragon, z) < z.r + this.dragon.r) this.damageDragon(z.src, z.dmg);
+          return false;
+        }
+        return true;
+      }
+      z.life -= dt; return z.life > 0;
+    });
+    this.walls = this.walls.filter(w => (w.life -= dt) > 0);
+    this.traps = this.traps.filter(tr => tr.life > 0 && (tr.life -= dt, tr.life > 0));
+    // モブ
+    for (const m of this.world.mobs) {
+      if (m.hp <= 0) continue;
+      m.tAtk -= dt;
+      if (m.tele) { m.tele.t -= dt; if (m.tele.t <= 0) { for (const u of units) if (!u.dead && dist(u, m.tele) < m.tele.r + u.r) this.damage(m, u, m.atk); m.tele = null; } }
+      const near = units.filter(u => !u.dead && u.stealth <= 0 && dist(m, u) < 140 &&
+        (u.revealT > 0 || u.markT > 0 || (!this.bushOf(u) && !this.smokeOf(u) && !this.losBlocked(m, u))))
+        .sort((a, b) => dist(m, a) - dist(m, b))[0];
+      if (near) {
+        const d = dist(m, near);
+        if (d > 34) { const a = ang(m, near); m.x += Math.cos(a) * m.spd * dt; m.y += Math.sin(a) * m.spd * dt; }
+        else if (m.tAtk <= 0 && !m.tele) { m.tAtk = 1.6; m.tele = { x: near.x, y: near.y, r: 34, t: .5 }; }
+      } else if (dist(m, m.home) > 30) { const a = ang(m, m.home); m.x += Math.cos(a) * m.spd * .6 * dt; m.y += Math.sin(a) * m.spd * .6 * dt; }
+    }
+    // ドラゴン(フェーズ制・予兆AoE)
+    if (this.dragon && this.dragon.hp > 0) {
+      const D = this.dragon;
+      D.phase = D.hp < D.maxHp * .33 ? 2 : D.hp < D.maxHp * .66 ? 1 : 0;
+      D.tAtk -= dt;
+      const foes = units.filter(u => !u.dead && dist(u, D) < 520);
+      if (foes.length && D.tAtk <= 0) {
+        D.tAtk = [2.6, 2.0, 1.7][D.phase];
+        const tgt = foes[Math.floor(Math.random() * foes.length)];
+        const n = [1, 2, 2][D.phase];
+        for (let i = 0; i < n; i++) {
+          const off = polar(rnd(0, 70), rnd(0, 7));
+          this.zones.push({ x: tgt.x + off.x, y: tgt.y + off.y, r: 78, team: -1, kind: 'nuke', life: .8, tele: .8, dmg: 80, src: D });
+        }
+      }
+    }
+    // 試合終了判定
+    const alive = units.filter(u => !u.dead);
+    if (this.dragon && this.dragon.hp <= 0) this.endMatch(true, '竜は倒れた');
+    else if (units.length > 0 && alive.length === 0) this.endMatch(false, '全滅 — 森が勝った');
+    else if (this.t >= CFG.matchLen) this.endMatch(false, '時間切れ — 森が全てを呑んだ');
+    this.broadcastSnapshots();
+  }
+
+  doAttack(u, aim) {
+    const C = CLASSES[u.cls];
+    u.atkT = C.atkCd; u.facing = aim;
+    const wasStealth = u.stealth > 0; u.stealth = 0;
+    u.revealT = Math.max(u.revealT, CFG.revealAtk);
+    if (C.projSpd) {
+      this.projs.push({ x: u.x, y: u.y, vx: Math.cos(aim) * C.projSpd, vy: Math.sin(aim) * C.projSpd, r: C.projR, life: 1.05, src: u, dmg: this.atkOf(u) });
+    } else {
+      for (const h of this.hostilesOf(u)) {
+        if (dist(u, h) < C.range + (h.r || 14) && Math.abs(angleDiff(ang(u, h), aim)) < 1.1) {
+          let d = this.atkOf(u);
+          if (u.cls === 'thief') {
+            const behind = Math.abs(angleDiff(h.facing || 0, ang(u, h))) < 1.2;
+            if (behind || wasStealth) d *= 1.8;
+            if (u.venom > 0) { u.venom--; if (h.poisonT !== undefined) { h.poisonT = u.venomDur; h.poisonSrc = u; } else d += 12; }
+          }
+          this.hit(u, h, d);
+        }
+      }
+    }
+    this.broadcast('fx', { kind: 'swing', x: u.x, y: u.y, dir: aim, team: u.team });
+  }
+
+  damage(src, tgt, amt) {
+    if (tgt.dead) return;
+    if (tgt.shieldT > 0) amt *= .6;
+    if (tgt.markT > 0) amt *= 1.15;
+    tgt.hp -= amt;
+    tgt.revealT = Math.max(tgt.revealT, CFG.revealHit);
+    tgt.lastHitT = this.t; // QTE検証用
+    if (tgt.hp <= 0) this.kill(src, tgt);
+  }
+  damageMob(src, m, amt) {
+    if (m.hp <= 0) return;
+    m.hp -= amt;
+    if (m.hp <= 0 && src && src.team !== undefined) { // 撃破報酬: 350px以内のチームで分配
+      const mates = this.aliveOf(src.team).filter(a => dist(a, m) < 350);
+      const share = mates.length || 1;
+      for (const a of mates) this.gainXp(a, m.xp / share, m.gold / share);
+    }
+  }
+  damageDragon(src, amt) {
+    const D = this.dragon; if (!D || D.hp <= 0) return;
+    if (src && src.team !== undefined && src.team >= 0) {
+      amt *= 1 + this.gimmickBuff[src.team]; // 装置解除バフ
+      this.dragonDmg[src.team] += amt;
+    }
+    D.hp -= amt;
+  }
+  kill(src, tgt) { // M2: 死=脱落(リスポーンなし)。撃破チームは奪取
+    if (tgt.dead) return;
+    tgt.dead = true; tgt.dash = null; tgt.stealth = 0; tgt.gim = null;
+    if (src && src.team !== undefined && src.team >= 0 && src.team !== tgt.team) {
+      const loots = this.aliveOf(src.team);
+      const stolen = Math.round(tgt.gold * .3);
+      for (const a of loots) this.gainXp(a, 20 + tgt.lv * 10, stolen / (loots.length || 1));
+      tgt.gold = Math.round(tgt.gold * .7);
+    }
+  }
+  endMatch(dragonKilled, reason) {
+    if (this.over) return;
+    this.over = true; this.phase = 'over';
+    const total = this.dragonDmg[0] + this.dragonDmg[1] || 1;
+    const rows = [0, 1].map(team => ({ team, dmg: Math.round(this.dragonDmg[team]), share: +(this.dragonDmg[team] / total).toFixed(3), rp: Math.round(this.dragonDmg[team] / total * 1000) }));
+    // RP永続化(人間プレイヤーのみ)
+    const db = loadDB();
+    const winTeam = dragonKilled ? rows.slice().sort((a, b) => b.rp - a.rp)[0].team : -1;
+    const players = [];
+    for (const u of this.units.values()) {
+      if (u.bot) continue;
+      const rp = rows[u.team].rp;
+      const rec = db[u.name] = db[u.name] || { rp: 0, matches: 0, wins: 0 };
+      rec.rp += rp; rec.matches++; if (u.team === winTeam) rec.wins++;
+      players.push({ name: u.name, team: u.team, rp, totalRp: rec.rp, matches: rec.matches, wins: rec.wins });
+    }
+    saveDB(db);
+    this.result = { dragonKilled, reason, rows, players };
+    this.broadcast('result', this.result);
+    this.clock.setTimeout(() => this.disconnect(), 60_000); // 1分後にルーム解散
+  }
+  collide(u) {
+    for (const arr of [this.world.trees, this.walls]) for (const t of arr) {
+      const d = dist(u, t), min = t.r + u.r;
+      if (d < min && d > 0) { const a = ang(t, u); u.x = t.x + Math.cos(a) * min; u.y = t.y + Math.sin(a) * min; }
+    }
+    if (this.dragon && this.dragon.hp > 0) { const D = this.dragon, d = dist(u, D), min = D.r + u.r;
+      if (d < min && d > 0) { const a = ang(D, u); u.x = D.x + Math.cos(a) * min; u.y = D.y + Math.sin(a) * min; } }
+    const rr = Math.hypot(u.x, u.y);
+    if (rr > CFG.mapR) { const a = Math.atan2(u.y, u.x); u.x = Math.cos(a) * CFG.mapR; u.y = Math.sin(a) * CFG.mapR; }
+  }
+
+  broadcastSnapshots() {
+    const units = [...this.units.values()];
+    const mobsPub = this.world.mobs.filter(m => m.hp > 0)
+      .map(m => ({ id: m.id, x: +m.x.toFixed(1), y: +m.y.toFixed(1), hp: Math.round(m.hp), maxHp: Math.round(m.maxHp), tele: m.tele ? { x: m.tele.x, y: m.tele.y, r: m.tele.r } : null }));
+    const zonesPub = this.zones.map(z => ({ x: z.x, y: z.y, r: z.r, kind: z.kind, tele: +Math.max(0, z.tele).toFixed(2), team: z.team }));
+    const wallsPub = this.walls.map(w => ({ x: +w.x.toFixed(1), y: +w.y.toFixed(1), r: w.r }));
+    const projsPub = this.projs.map(p => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), r: p.r, cls: p.src.cls }));
+    const chestsPub = this.world.chests.map(c => ({ x: c.x, y: c.y, open: c.open }));
+    const gimsPub = this.world.gimmicks.map(g => ({ x: g.x, y: g.y, unlocked: g.unlocked, by: g.by }));
+    const total = this.dragonDmg[0] + this.dragonDmg[1];
+    const dragonPub = this.dragon ? { x: 0, y: 0, r: 64, hp: Math.max(0, Math.round(this.dragon.hp)), maxHp: this.dragon.maxHp, phase: this.dragon.phase } : null;
+    const shares = total > 0 ? [this.dragonDmg[0] / total, this.dragonDmg[1] / total].map(s => Math.round(s * 100)) : [0, 0];
+    const byTeam = {};
+    for (const team of [0, 1]) {
+      byTeam[team] = units
+        .filter(u => u.team === team || (!u.dead && this.seenBy(team, u)))
+        .map(u => ({
+          id: u.id, team: u.team, cls: u.cls, x: +u.x.toFixed(1), y: +u.y.toFixed(1),
+          hp: Math.round(u.hp), maxHp: this.maxHpOf(u), facing: +u.facing.toFixed(2), dead: u.dead,
+          reveal: u.revealT > 0, stealth: u.team === team && u.stealth > 0, stun: u.stunT > 0, shield: u.shieldT > 0, mark: u.markT > 0, lv: u.lv,
+          name: u.name, bot: u.bot,
+        }));
+    }
+    const trapsByTeam = {};
+    for (const team of [0, 1]) {
+      trapsByTeam[team] = this.traps.filter(tr => {
+        if (tr.team === team) return true;
+        for (const v of this.units.values()) if (v.team === team && !v.dead && v.cls === 'thief' && dist(v, tr) < 140) return true;
+        return false;
+      }).map(tr => ({ x: tr.x, y: tr.y, r: tr.r, own: tr.team === team }));
+    }
+    for (const client of this.clients) {
+      const me = this.units.get(client.sessionId);
+      if (!me) continue;
+      client.send('snap', {
+        t: +this.t.toFixed(3), witherR: Math.round(this.witherR), over: this.over, phase: this.phase,
+        roster: this.phase === 'lobby' ? [...this.units.values()].map(u => ({ name: u.name, cls: u.cls, team: u.team })) : undefined,
+        units: byTeam[me.team], mobs: mobsPub, zones: zonesPub, walls: wallsPub, projs: projsPub,
+        traps: trapsByTeam[me.team], chests: chestsPub, gimmicks: gimsPub, dragon: dragonPub, shares,
+        me: {
+          mp: Math.round(me.mp), cd: [1, 2, 3, 4].map(n => +Math.max(0, me['s' + n + 'T']).toFixed(1)),
+          lv: me.lv, xp: Math.round(me.xp), xpNeed: this.xpNeed(me), gold: Math.round(me.gold),
+          potions: me.potions, whet: me.whet, whetPrice: this.whetPrice[me.team],
+          nearMerchant: this.world.merchants.some(m => dist(me, m) < 70),
+          nearGim: this.world.gimmicks.some(g => !g.unlocked && dist(me, g) < 60),
+          gimActive: !!me.gim,
+        },
+      });
+    }
+  }
+}
+
+const port = Number(process.env.PORT || 2570);
+const gameServer = new Server();
+gameServer.define('forest', ForestRoom);
+gameServer.listen(port).then(() => console.log(`[forest:m3] listening on ws://localhost:${port}`));
