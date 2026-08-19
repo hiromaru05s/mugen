@@ -33,6 +33,12 @@ const CFG = {
   castRange: 380, mpMax: 100, mpRegen: 6,
   matchLen: 480, unsealAt: 240, witherStart: 60, coreR: 240,
   dragonHp: 3500, potionHeal: 110, potionPrice: 80, whetBase: 120,
+  // --- 追加5要素 ---
+  downTime: 15, reviveTime: 2.5, reviveHpRate: .4, finishRate: .09, // ダウン&蘇生
+  trailHpRate: .55, trailEvery: .45, trailLife: 6,                  // 血の足跡
+  mistFirst: 70, mistEvery: 90, mistDur: 18, mistView: .55,         // 夢幻の霧
+  goldenOpenAt: 120, goldenGold: 400, goldenAtk: .10,               // 黄金の宝箱
+  roarReveal: 3,                                                    // 竜の咆哮
 };
 const CLASSES = {
   warrior: { hp: 340, spd: 150, range: 46, atk: 26, atkCd: .7 },
@@ -91,6 +97,8 @@ class ForestRoom extends Room {
     this.whetPrice = [CFG.whetBase, CFG.whetBase]; // チーム別価格逓増
     this.nextTeam = 0; this.t = 0; this.witherR = CFG.mapR; this.over = false; this.result = null;
     this.phase = 'lobby'; this.botIdx = 0;
+    this.trails = []; this.mistOn = false; this.nextMist = CFG.mistFirst; this.mistLeft = 0;
+    this.goldenTeam = -1; this.dragonPrevPhase = 0;
 
     this.onMessage('start', () => { if (this.phase === 'lobby') this.startMatch(); });
     this.onMessage('ready', (client) => {
@@ -100,6 +108,7 @@ class ForestRoom extends Room {
         matchLen: CFG.matchLen, unsealAt: CFG.unsealAt,
         trees: this.world.trees, bushes: this.world.bushes,
         merchants: this.world.merchants, gimmicks: this.world.gimmicks.map(g => ({ x: g.x, y: g.y })),
+        golden: { x: this.world.golden.x, y: this.world.golden.y, openAt: CFG.goldenOpenAt },
         stats: CLASSES[u.cls],
         skills: [1, 2, 3, 4].map(n => ({ n, jp: SKILLS[u.cls][n].jp, cd: SKILLS[u.cls][n].cd, mp: SKILLS[u.cls][n].mp })),
       });
@@ -127,12 +136,12 @@ class ForestRoom extends Room {
     });
     this.onMessage('potion', (client) => {
       const u = this.units.get(client.sessionId);
-      if (!u || u.dead || this.over || u.potions <= 0 || u.hp >= this.maxHpOf(u)) return;
+      if (!u || u.dead || u.downed || this.over || u.potions <= 0 || u.hp >= this.maxHpOf(u)) return;
       u.potions--; u.hp = Math.min(this.maxHpOf(u), u.hp + CFG.potionHeal);
     });
     this.onMessage('buy', (client, msg) => {
       const u = this.units.get(client.sessionId);
-      if (!u || u.dead || this.over) return;
+      if (!u || u.dead || u.downed || this.over) return;
       if (!this.world.merchants.some(m => dist(u, m) < 70)) return; // 商人の近くでのみ
       if (msg && msg.item === 'potion' && u.gold >= CFG.potionPrice) { u.gold -= CFG.potionPrice; u.potions++; }
       if (msg && msg.item === 'whet' && u.gold >= this.whetPrice[u.team]) {
@@ -142,7 +151,7 @@ class ForestRoom extends Room {
     // 封印装置: クライアント実行QTE + サーバー検証(所要時間下限・近接・被弾なし — SPEC §4)
     this.onMessage('gimStart', (client) => {
       const u = this.units.get(client.sessionId);
-      if (!u || u.dead || this.over) return;
+      if (!u || u.dead || u.downed || this.over) return;
       const g = this.world.gimmicks.find(g2 => !g2.unlocked && dist(u, g2) < 60);
       if (g) u.gim = { g, t0: this.t, hitAt: u.lastHitT || -1 };
     });
@@ -158,6 +167,13 @@ class ForestRoom extends Room {
       this.gimmickBuff[u.team] += .12;
       for (const a of this.units.values()) if (a.team === u.team && !a.dead) this.gainXp(a, 30, 120 / this.aliveOf(u.team).length);
       this.broadcast('fx', { kind: 'gimmick', x: g.x, y: g.y, team: u.team });
+    });
+    // 蘇生: ダウンした味方の近く(50px)でチャネル開始 → サーバーが2.5秒後に完了判定
+    this.onMessage('revive', (client) => {
+      const u = this.units.get(client.sessionId);
+      if (!u || u.dead || u.downed || this.over || this.phase !== 'live') return;
+      const tgt = [...this.units.values()].find(a => a.team === u.team && a.downed && !a.dead && dist(a, u) < 50);
+      if (tgt) u.revCh = { id: tgt.id, t0: this.t, hitAt: u.lastHitT || -1 };
     });
     if (DEV) {
       this.onMessage('devTeleport', (client, msg) => { const u = this.units.get(client.sessionId); if (u) { u.x = +msg.x || 0; u.y = +msg.y || 0; } });
@@ -184,7 +200,10 @@ class ForestRoom extends Room {
     }
     for (let i = 0; i < 3; i++) { const p = polar(rnd(CFG.mapR * .45, CFG.mapR * .6), i * Math.PI * 2 / 3 + rnd(-.4, .4)); merchants.push({ x: p.x, y: p.y }); }
     for (let i = 0; i < 3; i++) { const p = polar(rnd(CFG.coreR + 220, CFG.mapR * .42), i * Math.PI * 2 / 3 + rnd(-.5, .5) + .7); gimmicks.push({ x: p.x, y: p.y, unlocked: false, by: -1 }); }
-    return { trees, bushes, mobs, chests, merchants, gimmicks };
+    // 黄金の宝箱: 全チームが位置を知っている争奪ポイント(中間帯・2:00に開放)
+    const gp = polar(rnd(CFG.mapR * .3, CFG.mapR * .5), rnd(0, 7));
+    const golden = { x: gp.x, y: gp.y, open: false };
+    return { trees, bushes, mobs, chests, merchants, gimmicks, golden };
   }
 
   onJoin(client, options) {
@@ -204,6 +223,7 @@ class ForestRoom extends Room {
       facing: 0, atkT: 0, s1T: 0, s2T: 0, s3T: 0, s4T: 0,
       revealT: 0, stealth: 0, slowT: 0, buffT: 0, shieldT: 0, markT: 0, stunT: 0, poisonT: 0, poisonSrc: null, venom: 0,
       dash: null, dead: false, lastHitT: -1, gim: null,
+      downed: false, downT: 0, downedBy: null, revCh: null, trailT: 0, // ダウン&蘇生・足跡
       think: 0, botGimT: 0, wp: null, // Bot用
       input: { mx: 0, my: 0, atk: false, aim: 0 },
     };
@@ -231,7 +251,7 @@ class ForestRoom extends Room {
   /* ---------- 成長 ---------- */
   lvMul(u) { return 1 + .13 * (u.lv - 1); }
   maxHpOf(u) { return Math.round(CLASSES[u.cls].hp * this.lvMul(u)); }
-  atkOf(u) { return CLASSES[u.cls].atk * this.lvMul(u) * (1 + u.gold / 900) * (1 + .08 * u.whet) * (u.buffT > 0 ? 1.3 : 1); }
+  atkOf(u) { return CLASSES[u.cls].atk * this.lvMul(u) * (1 + u.gold / 900) * (1 + .08 * u.whet) * (u.buffT > 0 ? 1.3 : 1) * (this.goldenTeam === u.team ? 1 + CFG.goldenAtk : 1); }
   spdOf(u) { return CLASSES[u.cls].spd * (u.slowT > 0 ? .55 : 1); }
   xpNeed(u) { return 60 + u.lv * 45; }
   gainXp(u, xp, gold) {
@@ -243,7 +263,7 @@ class ForestRoom extends Room {
   /* ---------- 視界 (枯死域=視界悪化込み) ---------- */
   bushOf(u) { for (const b of this.world.bushes) if (dist(u, b) < b.r) return b; return null; }
   smokeOf(u) { for (const z of this.zones) if (z.kind === 'smoke' && dist(u, z) < z.r) return z; return null; }
-  viewR(v) { return Math.hypot(v.x, v.y) > this.witherR ? CFG.witherViewR : CFG.viewR; }
+  viewR(v) { return (Math.hypot(v.x, v.y) > this.witherR ? CFG.witherViewR : CFG.viewR) * (this.mistOn ? CFG.mistView : 1); }
   losBlocked(a, b) {
     const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
     if (!L2) return false;
@@ -269,7 +289,7 @@ class ForestRoom extends Room {
   /* ---------- スキル(M1と同一プリミティブ) ---------- */
   castSkill(u, slot, tx, ty) {
     const S = SKILLS[u.cls][slot];
-    if (!S || u['s' + slot + 'T'] > 0 || u.stunT > 0 || u.mp < S.mp) return;
+    if (!S || u['s' + slot + 'T'] > 0 || u.stunT > 0 || u.downed || u.mp < S.mp) return;
     u['s' + slot + 'T'] = S.cd; u.mp -= S.mp;
     const dir = Math.atan2(ty - u.y, tx - u.x) || u.facing;
     for (const fx of S.fx) this.runFx(u, fx, dir, tx, ty);
@@ -311,9 +331,9 @@ class ForestRoom extends Room {
         if (bt) bt.markT = fx.dur; else { u.s3T = 1; u.mp += SKILLS[u.cls][3].mp; } break; }
       case 'modifyStat': for (const a of this.units.values()) if (a.team === u.team && !a.dead && dist(a, u) < fx.radius) {
           if (fx.stat === 'buff') a.buffT = fx.dur; if (fx.stat === 'shield') a.shieldT = fx.dur; } break;
-      case 'healAllies': for (const a of this.units.values()) if (a.team === u.team && !a.dead && dist(a, u) < fx.radius) a.hp = Math.min(this.maxHpOf(a), a.hp + fx.amount); break;
+      case 'healAllies': for (const a of this.units.values()) if (a.team === u.team && !a.dead && !a.downed && dist(a, u) < fx.radius) a.hp = Math.min(this.maxHpOf(a), a.hp + fx.amount); break;
       case 'healLowest': { let m = null;
-        for (const a of this.units.values()) if (a.team === u.team && !a.dead && (!m || a.hp / this.maxHpOf(a) < m.hp / this.maxHpOf(m))) m = a;
+        for (const a of this.units.values()) if (a.team === u.team && !a.dead && !a.downed && (!m || a.hp / this.maxHpOf(a) < m.hp / this.maxHpOf(m))) m = a;
         if (m) m.hp = Math.min(this.maxHpOf(m), m.hp + fx.amount); break; }
       case 'venom': u.venom = fx.charges; u.venomDur = fx.dur; break;
     }
@@ -337,17 +357,29 @@ class ForestRoom extends Room {
   botThink(u, dt) {
     u.think -= dt; if (u.think > 0) return; u.think = .22;
     u.input.atk = false;
-    if (u.dead || u.stunT > 0) { this.setMove(u, null); return; }
+    if (u.dead || u.downed || u.stunT > 0) { this.setMove(u, null); return; }
+    if (u.revCh) { this.setMove(u, null); return; } // 蘇生チャネル中は静止
     const mh = this.maxHpOf(u);
     // 1) 予兆回避が最優先(このゲームの文法)
     const zz = this.zones.find(z => z.kind === 'nuke' && z.tele > 0 && z.team !== u.team && dist(u, z) < z.r + u.r + 8);
     if (zz) { this.setMove(u, ang(zz, u)); u.think = .1; return; }
     if (u.potions > 0 && u.hp < mh * .3) { u.potions--; u.hp = Math.min(mh, u.hp + CFG.potionHeal); }
     const mates = this.aliveOf(u.team), leader = mates[0];
+    // ダウンした味方の救助(敵が近くにいなければ・僧侶は多少危険でも行く)
+    const dn = mates.find(a => a.downed);
+    if (dn) {
+      const danger = [...this.units.values()].some(e => e.team !== u.team && !e.dead && !e.downed && dist(e, dn) < 180 && this.seenBy(u.team, e));
+      if (!danger || u.cls === 'priest') {
+        if (dist(u, dn) > 40) { this.setMove(u, ang(u, dn)); return; }
+        this.setMove(u, null);
+        u.revCh = { id: dn.id, t0: this.t, hitAt: u.lastHitT || -1 };
+        return;
+      }
+    }
     // 2) 僧侶は回復最優先
     if (u.cls === 'priest') {
-      if (u.s1T <= 0 && mates.some(a => a.hp < this.maxHpOf(a) * .65 && dist(a, u) < 170)) this.castSkill(u, 1, u.x, u.y);
-      const hurt2 = mates.filter(a => a.hp < this.maxHpOf(a) * .5);
+      if (u.s1T <= 0 && mates.some(a => !a.downed && a.hp < this.maxHpOf(a) * .65 && dist(a, u) < 170)) this.castSkill(u, 1, u.x, u.y);
+      const hurt2 = mates.filter(a => !a.downed && a.hp < this.maxHpOf(a) * .5);
       if (u.s2T <= 0 && hurt2.length >= 2) this.castSkill(u, 2, hurt2[0].x, hurt2[0].y);
       if (u.s3T <= 0 && hurt2.length >= 2) this.castSkill(u, 3, u.x, u.y);
       if (u.s4T <= 0) { const m2 = mates.find(a => a.hp < this.maxHpOf(a) * .35); if (m2) this.castSkill(u, 4, m2.x, m2.y); }
@@ -358,6 +390,7 @@ class ForestRoom extends Room {
     let tgt = null, best = 1e9;
     for (const h of this.hostilesOf(u)) {
       if (u.cls === 'priest' && !h.isDragon) continue;
+      if (h.downed) continue; // Botはダウン中の敵を追撃しない(確殺は人間の判断に残す)
       if (!h.isDragon && h.id && this.units.has(h.id) && !this.seenBy(u.team, h)) continue; // 敵ユニットは可視のみ
       const d = dist(u, h);
       const cap = h.isDragon ? 480 : (ranged ? 420 : 240);
@@ -440,9 +473,19 @@ class ForestRoom extends Room {
       this.dragon = { isDragon: true, x: 0, y: 0, r: 64, hp: CFG.dragonHp, maxHp: CFG.dragonHp, tAtk: 2, phase: 0, team: -1 };
       this.broadcast('fx', { kind: 'unseal' });
     }
+    // 夢幻の霧: 周期イベントで全員の視界が半減
+    if (!this.mistOn && this.t >= this.nextMist) { this.mistOn = true; this.mistLeft = CFG.mistDur; this.broadcast('fx', { kind: 'mist' }); }
+    if (this.mistOn) { this.mistLeft -= dt; if (this.mistLeft <= 0) { this.mistOn = false; this.nextMist = this.t + CFG.mistEvery; this.broadcast('fx', { kind: 'mistEnd' }); } }
+    this.trails.forEach(tr => tr.life -= dt); this.trails = this.trails.filter(tr => tr.life > 0);
     const units = [...this.units.values()];
     for (const u of units) {
       if (u.dead) continue;
+      if (u.downed) { // ダウン: 出血しながら常時露見。時間切れで死亡
+        u.downT -= dt;
+        u.revealT = Math.max(u.revealT, .5);
+        if (u.downT <= 0) this.die(u.downedBy, u);
+        continue;
+      }
       u.atkT -= dt; u.s1T -= dt; u.s2T -= dt; u.s3T -= dt; u.s4T -= dt;
       u.revealT -= dt; u.stealth -= dt; u.slowT -= dt; u.buffT -= dt; u.shieldT -= dt; u.markT -= dt; u.stunT -= dt;
       u.mp = Math.min(CFG.mpMax, u.mp + CFG.mpRegen * dt);
@@ -454,7 +497,33 @@ class ForestRoom extends Room {
       } else if (u.stunT <= 0) {
         const l = Math.hypot(u.input.mx, u.input.my);
         if (l > 0) { u.x += u.input.mx / l * this.spdOf(u) * dt; u.y += u.input.my / l * this.spdOf(u) * dt; u.facing = Math.atan2(u.input.my, u.input.mx); }
-        if (u.input.atk && u.atkT <= 0) this.doAttack(u, u.input.aim);
+        if (u.input.atk && u.atkT <= 0 && !u.revCh) this.doAttack(u, u.input.aim);
+      }
+      // 蘇生チャネル(移動・被弾・距離で中断、2.5秒で完了)
+      if (u.revCh) {
+        const rt = this.units.get(u.revCh.id);
+        const moved = Math.hypot(u.input.mx, u.input.my) > 0;
+        if (!rt || !rt.downed || rt.dead || moved || (u.lastHitT || -1) > u.revCh.hitAt || dist(u, rt) >= 55) u.revCh = null;
+        else if (this.t - u.revCh.t0 >= CFG.reviveTime) {
+          rt.downed = false; rt.hp = Math.round(this.maxHpOf(rt) * CFG.reviveHpRate); rt.downT = 0;
+          u.revCh = null;
+          this.broadcast('fx', { kind: 'revive', x: rt.x, y: rt.y, team: rt.team, name: rt.name });
+        }
+      }
+      // 血の足跡: 負傷者(HP55%未満)は移動の痕跡を残す
+      if (u.hp < this.maxHpOf(u) * CFG.trailHpRate) {
+        u.trailT -= dt;
+        if (u.trailT <= 0) { u.trailT = CFG.trailEvery;
+          this.trails.push({ x: +u.x.toFixed(1), y: +u.y.toFixed(1), team: u.team, life: CFG.trailLife });
+          if (this.trails.length > 400) this.trails.shift(); }
+      }
+      // 黄金の宝箱(2:00開放・全チーム既知の争奪ポイント)
+      const gc = this.world.golden;
+      if (!gc.open && this.t >= CFG.goldenOpenAt && dist(u, gc) < 45) {
+        gc.open = true; this.goldenTeam = u.team;
+        const gm = this.aliveOf(u.team);
+        for (const a of gm) this.gainXp(a, 40, CFG.goldenGold / gm.length);
+        this.broadcast('fx', { kind: 'golden', x: gc.x, y: gc.y, team: u.team });
       }
       for (const z of this.zones) {
         if (z.tele > 0) continue;
@@ -522,6 +591,11 @@ class ForestRoom extends Room {
     if (this.dragon && this.dragon.hp > 0) {
       const D = this.dragon;
       D.phase = D.hp < D.maxHp * .33 ? 2 : D.hp < D.maxHp * .66 ? 1 : 0;
+      if (D.phase !== this.dragonPrevPhase) { // 竜の咆哮: フェーズ移行で全員強制露見
+        this.dragonPrevPhase = D.phase;
+        for (const u2 of units) if (!u2.dead) u2.revealT = Math.max(u2.revealT, CFG.roarReveal);
+        this.broadcast('fx', { kind: 'roar', phase: D.phase });
+      }
       D.tAtk -= dt;
       const foes = units.filter(u => !u.dead && dist(u, D) < 520);
       if (foes.length && D.tAtk <= 0) {
@@ -567,11 +641,18 @@ class ForestRoom extends Room {
 
   damage(src, tgt, amt) {
     if (tgt.dead) return;
+    if (tgt.downed) { // ダウン中への追撃=確殺を早める
+      tgt.downT -= amt * CFG.finishRate;
+      tgt.downedBy = src || tgt.downedBy;
+      tgt.lastHitT = this.t;
+      if (tgt.downT <= 0) this.die(tgt.downedBy, tgt);
+      return;
+    }
     if (tgt.shieldT > 0) amt *= .6;
     if (tgt.markT > 0) amt *= 1.15;
     tgt.hp -= amt;
     tgt.revealT = Math.max(tgt.revealT, CFG.revealHit);
-    tgt.lastHitT = this.t; // QTE検証用
+    tgt.lastHitT = this.t; // QTE検証・蘇生中断用
     if (tgt.hp <= 0) this.kill(src, tgt);
   }
   damageMob(src, m, amt) {
@@ -591,9 +672,18 @@ class ForestRoom extends Room {
     }
     D.hp -= amt;
   }
-  kill(src, tgt) { // M2: 死=脱落(リスポーンなし)。撃破チームは奪取
+  kill(src, tgt) { // HP0 → 助けられる味方がいればダウン、いなければ死亡
+    if (tgt.dead || tgt.downed) return;
+    const rescuers = [...this.units.values()].filter(a => a.team === tgt.team && a !== tgt && !a.dead && !a.downed);
+    if (rescuers.length > 0) {
+      tgt.downed = true; tgt.downT = CFG.downTime; tgt.downedBy = src || null;
+      tgt.hp = 1; tgt.dash = null; tgt.stealth = 0; tgt.gim = null; tgt.revCh = null;
+      this.broadcast('fx', { kind: 'down', x: tgt.x, y: tgt.y, team: tgt.team, name: tgt.name });
+    } else this.die(src, tgt);
+  }
+  die(src, tgt) { // 完全な死=脱落。撃破チームは奪取
     if (tgt.dead) return;
-    tgt.dead = true; tgt.dash = null; tgt.stealth = 0; tgt.gim = null;
+    tgt.dead = true; tgt.downed = false; tgt.dash = null; tgt.stealth = 0; tgt.gim = null; tgt.revCh = null;
     if (src && src.team !== undefined && src.team >= 0 && src.team !== tgt.team) {
       const loots = this.aliveOf(src.team);
       const stolen = Math.round(tgt.gold * .3);
@@ -654,6 +744,7 @@ class ForestRoom extends Room {
           hp: Math.round(u.hp), maxHp: this.maxHpOf(u), facing: +u.facing.toFixed(2), dead: u.dead,
           reveal: u.revealT > 0, stealth: u.team === team && u.stealth > 0, stun: u.stunT > 0, shield: u.shieldT > 0, mark: u.markT > 0, lv: u.lv,
           name: u.name, bot: u.bot,
+          downed: u.downed, downT: u.downed ? +Math.max(0, u.downT).toFixed(1) : 0,
         }));
     }
     const trapsByTeam = {};
@@ -672,6 +763,9 @@ class ForestRoom extends Room {
         roster: this.phase === 'lobby' ? [...this.units.values()].map(u => ({ name: u.name, cls: u.cls, team: u.team })) : undefined,
         units: byTeam[me.team], mobs: mobsPub, zones: zonesPub, walls: wallsPub, projs: projsPub,
         traps: trapsByTeam[me.team], chests: chestsPub, gimmicks: gimsPub, dragon: dragonPub, shares,
+        trails: this.trails.map(tr => ({ x: tr.x, y: tr.y, own: tr.team === me.team, f: +Math.min(1, tr.life / CFG.trailLife).toFixed(2) })),
+        mist: this.mistOn ? +this.mistLeft.toFixed(1) : 0,
+        golden: { open: this.world.golden.open, by: this.goldenTeam, tLeft: Math.max(0, Math.ceil(CFG.goldenOpenAt - this.t)) },
         me: {
           mp: Math.round(me.mp), cd: [1, 2, 3, 4].map(n => +Math.max(0, me['s' + n + 'T']).toFixed(1)),
           lv: me.lv, xp: Math.round(me.xp), xpNeed: this.xpNeed(me), gold: Math.round(me.gold),
@@ -679,6 +773,8 @@ class ForestRoom extends Room {
           nearMerchant: this.world.merchants.some(m => dist(me, m) < 70),
           nearGim: this.world.gimmicks.some(g => !g.unlocked && dist(me, g) < 60),
           gimActive: !!me.gim,
+          nearDowned: [...this.units.values()].some(a => a.team === me.team && a.downed && !a.dead && dist(a, me) < 50),
+          revP: me.revCh ? +Math.min(1, (this.t - me.revCh.t0) / CFG.reviveTime).toFixed(2) : 0,
         },
       });
     }
