@@ -44,20 +44,39 @@
  <h2 style="color:#e0b64f;letter-spacing:.15em">夢幻の森 M3</h2>
  <p style="color:#8fa598;font-size:12px">足りない枠はBotが埋めて常に3v3。RPは名前に紐づいて累積される。<br>
  WASD/矢印移動・クリックorSpace攻撃・1-4(E/R/T)スキル・<kbd>5</kbd>ポーション・<kbd>F</kbd>購入/装置・<kbd>G</kbd>砥石</p>
- <div style="margin-bottom:8px"><input id="pname" placeholder="なまえ" maxlength="12"
-  style="background:#0a0f0d;border:1px solid #3a5248;color:#e8e2d2;border-radius:8px;padding:8px 10px;font-size:14px;text-align:center"></div>
+ <div style="margin-bottom:8px">
+  <input id="pname" placeholder="なまえ" maxlength="12"
+   style="background:#0a0f0d;border:1px solid #3a5248;color:#e8e2d2;border-radius:8px;padding:8px 10px;font-size:14px;text-align:center">
+  <input id="pparty" placeholder="パーティ合言葉(任意)" maxlength="12"
+   style="background:#0a0f0d;border:1px solid #3a5248;color:#e8e2d2;border-radius:8px;padding:8px 10px;font-size:14px;text-align:center">
+ </div>
+ <div style="margin-bottom:8px;font-size:12px;color:#8fa598">スキン:
+  <span id="skins2"></span>
+ </div>
  <div>
   <button onclick="pick('warrior')">⚔ 近接</button><button onclick="pick('mage')">✦ 魔法</button>
   <button onclick="pick('thief')">◆ 盗賊</button><button onclick="pick('priest')">✚ 僧侶</button>
   <button onclick="pick('ranger')">➹ 遠距離</button>
+ </div>
+ <div id="reconnectRow" style="display:none;margin-top:10px">
+  <button onclick="tryReconnect()" style="border-color:#e0b64f">前の試合に再接続</button>
  </div></div></div>
 <div id="lobbyOv" style="display:none;position:fixed;inset:0;background:rgba(8,14,11,.9);z-index:9;align-items:center;justify-content:center">
  <div class="panel">
   <h2 style="color:#e0b64f">待機ロビー</h2>
   <div id="roster" style="text-align:left;font-size:13px;margin:10px 0"></div>
-  <p style="color:#8fa598;font-size:12px">開始時、空き枠はBotが埋めて3v3になる</p>
+  <p style="color:#8fa598;font-size:12px">同じ合言葉のパーティは必ず同チーム。空き枠はBotが埋める</p>
   <button onclick="room.send('start')" style="border-color:#e0b64f">マッチ開始</button>
+  <button onclick="room.send('start',{night:true})" style="border-color:#7a5f9a">🌙 夜マッチで開始</button>
  </div></div>
+<div id="buildOv" style="display:none;position:fixed;bottom:120px;left:50%;transform:translateX(-50%);z-index:8">
+ <div class="panel" style="padding:14px">
+  <div style="color:#e0b64f;font-size:13px;margin-bottom:6px" id="buildTitle">ビルド選択</div>
+  <button id="build0" style="display:block;width:100%"></button>
+  <button id="build1" style="display:block;width:100%"></button>
+ </div></div>
+<div id="nightOv" style="position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;transition:opacity 2s;
+ background:rgba(15,20,45,.42)"></div>
 <div id="resultOv" style="display:none"><div class="panel" id="resultPanel"></div></div>
 <div id="bars" style="display:none">
  <div style="display:flex;justify-content:space-between"><b id="clsName"></b><span>Lv<span id="lv">1</span> <span style="color:#e0b64f" id="gold">0</span>G</span></div>
@@ -77,27 +96,42 @@
 'use strict';
 const ENDPOINT = location.hash.slice(1) || 'ws://localhost:2570';
 const INTERP = 0.1;
-let room=null,myId=null,myTeam=0,world=null,mySkills=[],myStats=null;
+let room=null,myId=null,myTeam=0,myCls='warrior',world=null,mySkills=[],myStats=null;
 let snaps=[],fxList=[],lastMe=null,lastSelf=null,pred=null,result=null;
 let qte=null; // {needle,dir,zoneC,zoneW,hits}
 const keys={},mouse={down:false,wx:0,wy:0};
 const GLYPH={warrior:'⚔',mage:'✦',thief:'◆',priest:'✚',ranger:'➹'};
-let wasdUsed=false;
+const TEAMCOLS=['#e0b64f','#c05a5a','#5a7ec0','#7ec05a','#b78ae0','#5bc8b0','#e08a5a','#d0d0d0','#c0c05a','#8a6a42'];
+const TEAMNAMES=['金','紅','蒼','翠','紫','白','橙','灰','黄','茶'];
+const TEAMINT=TEAMCOLS.map(c=>parseInt(c.slice(1),16));
+const PIN_LABELS=['集合','危険','装置','竜'];
+const SKIN_DOTS=['#e8e2d2','#b78ae0','#5bc8b0','#e08a5a','#8fe0a8','#3a3430'];
+let mySkin=0,wasdUsed=false,prevPinN=0;
 
-window.pick=async function(cls){
+// スキン選択UI
+addEventListener('DOMContentLoaded',()=>{
+ document.getElementById('skins2').innerHTML=SKIN_DOTS.map((c,i)=>
+  `<span onclick="setSkin(${i})" id="sk${i}" style="display:inline-block;width:16px;height:16px;border-radius:50%;
+   background:${c};margin:0 3px;cursor:pointer;border:2px solid ${i===0?'#e0b64f':'#3a5248'}"></span>`).join('');
+ if(sessionStorage.getItem('mnm_token'))document.getElementById('reconnectRow').style.display='block';
+});
+window.setSkin=i=>{mySkin=i;SKIN_DOTS.forEach((_,j)=>
+ document.getElementById('sk'+j).style.borderColor=j===i?'#e0b64f':'#3a5248')};
+
+function wireRoom(){
  document.getElementById('select').style.display='none';
  document.getElementById('bars').style.display='block';
  document.getElementById('skills').style.display='flex';
- const pname=(document.getElementById('pname').value||'player').trim()||'player';
- const client=new Colyseus.Client(ENDPOINT);
- room=await client.joinOrCreate('forest',{name:pname,cls});
- document.getElementById('lobbyOv').style.display='flex';
- room.onMessage('init',m=>{myId=m.id;myTeam=m.team;world=m;mySkills=m.skills;myStats=m.stats;
-  document.getElementById('clsName').textContent=GLYPH[m.cls]+' チーム'+(m.team===0?'金':'紅')});
+ try{sessionStorage.setItem('mnm_token',room.reconnectionToken)}catch(e){}
+ room.onMessage('init',m=>{myId=m.id;myTeam=m.team;world=m;mySkills=m.skills;myStats=m.stats;myCls=m.cls;
+  document.getElementById('clsName').textContent=GLYPH[m.cls]+(m.team>=0?' チーム'+TEAMNAMES[m.team]:'')});
+ room.onMessage('team',m=>{myTeam=m.team;
+  document.getElementById('clsName').textContent=GLYPH[myCls]+' チーム'+TEAMNAMES[m.team]});
  room.onMessage('snap',s=>{snaps.push(s);if(snaps.length>40)snaps.shift();
   if(s.phase==='lobby'&&s.roster){
    document.getElementById('roster').innerHTML=s.roster.map(r=>
-    `<div><b style="color:${r.team===0?'#e0b64f':'#c05a5a'}">●</b> ${r.name} (${r.cls})</div>`).join('');
+    `<div>● ${r.name} <span style="color:#5bc8b0;font-size:11px">${r.rank||''}</span> (${r.cls})`+
+    `${r.party?` <span style="color:#e0b64f;font-size:11px">[${r.party}]</span>`:''}</div>`).join('');
   } else document.getElementById('lobbyOv').style.display='none';
   const me=s.units.find(u=>u.id===myId);lastSelf=s.me;
   if(me){lastMe=me;
@@ -118,6 +152,12 @@ window.pick=async function(cls){
   if(f.kind==='mistEnd'){announce('霧が晴れた');document.getElementById('mistOv').style.opacity=0}
   if(f.kind==='golden'){sfx('victory',.6);announce(f.team===myTeam?'黄金の宝箱を手に入れた! 攻撃+10%':'黄金の宝箱は奪われた…')}
   if(f.kind==='roar'){sfx('unseal',.8);announce('竜が咆哮する — 全員の姿が暴かれた!')}
+  if(f.kind==='matchStart'&&f.night){document.getElementById('nightOv').style.opacity=1;announce('🌙 夜の森 — 視界が悪い…')}
+  if(f.kind==='boss'){sfx('unseal',.5);announce('森の主が目覚めた — 討伐したチームは対竜+8%')}
+  if(f.kind==='bossDown'){sfx('victory',.5);announce(f.team===myTeam?'森の主を討伐! 対竜与ダメ+8%':'森の主は他チームに討たれた')}
+  if(f.kind==='npc'){announce('迷い人が現れた — 祠まで護衛すると報酬(横取り可)')}
+  if(f.kind==='npcDone'){sfx('coin');announce(f.team===myTeam?'迷い人を送り届けた! +200G':'迷い人は他チームが送り届けた')}
+  if(f.kind==='alarm'&&f.team===myTeam){sfx('gim',.7);announce('警報罠が敵を捕捉! 位置をマークした')}
  });
  room.onMessage('result',r=>{result=r;sfx(r.dragonKilled?'victory':'hit');showResult(r)});
  startAmbient();
@@ -127,22 +167,68 @@ window.pick=async function(cls){
   const {mx,my}=moveVec();
   room.send('input',{mx,my,atk:(mouse.down||!!keys[' '])&&!qte,aim:aimAngle()});
  },50);
+}
+window.pick=async function(cls){
+ const pname=(document.getElementById('pname').value||'player').trim()||'player';
+ const party=(document.getElementById('pparty').value||'').trim();
+ const client=new Colyseus.Client(ENDPOINT);
+ room=await client.joinOrCreate('forest',{name:pname,cls,party,skin:mySkin});
+ wireRoom();
+ document.getElementById('lobbyOv').style.display='flex';
+};
+window.tryReconnect=async function(){
+ try{
+  const client=new Colyseus.Client(ENDPOINT);
+  room=await client.reconnect(sessionStorage.getItem('mnm_token'));
+  wireRoom();
+ }catch(e){
+  sessionStorage.removeItem('mnm_token');
+  document.getElementById('reconnectRow').style.display='none';
+ }
 };
 function moveVec(){let mx=0,my=0;
  if(keys['arrowup']||keys['w'])my--;if(keys['arrowdown']||keys['s'])my++;
  if(keys['arrowleft']||keys['a'])mx--;if(keys['arrowright']||keys['d'])mx++;return{mx,my}}
 function aimAngle(){const p=pred||lastMe;if(!p)return 0;return Math.atan2(mouse.wy-p.y,mouse.wx-p.x)}
 function showResult(r){
- const rows=r.rows.slice().sort((a,b)=>b.rp-a.rp);
- const me2=(r.players||[]).find(p=>p.name&&lastMe&&p.team===myTeam);
+ const rows=r.rows.filter(x=>x.dmg>0||x.team===myTeam).sort((a,b)=>b.rp-a.rp);
  document.getElementById('resultPanel').innerHTML=
   `<h2 style="color:#e0b64f">${r.dragonKilled?'竜は倒れた':'マッチ終了'}</h2><p style="color:#8fa598">${r.reason}</p>
   <table><tr><th>チーム</th><th>竜与ダメ</th><th>貢献率</th><th>RP</th></tr>
-  ${rows.map(x=>`<tr style="${x.team===myTeam?'color:#e0b64f':''}"><td>${x.team===0?'金':'紅'}</td><td>${x.dmg}</td><td>${Math.round(x.share*100)}%</td><td>+${x.rp}</td></tr>`).join('')}</table>
-  ${(r.players||[]).map(p=>`<p style="font-size:12px;color:#8fa598">${p.name}: +${p.rp}RP → 累計<b style="color:#e0b64f">${p.totalRp}RP</b>(${p.matches}戦${p.wins}勝)</p>`).join('')}
+  ${rows.map(x=>`<tr style="${x.team===myTeam?'color:#e0b64f':''}"><td style="color:${TEAMCOLS[x.team]}">●${TEAMNAMES[x.team]}</td><td>${x.dmg}</td><td>${Math.round(x.share*100)}%</td><td>+${x.rp}</td></tr>`).join('')}</table>
+  ${(r.players||[]).map(p=>`<p style="font-size:12px;color:#8fa598">${p.name} <span style="color:#5bc8b0">${p.rank||''}</span>: +${p.rp}RP → 累計<b style="color:#e0b64f">${p.totalRp}RP</b>(${p.matches}戦${p.wins}勝)</p>`).join('')}
+  <button onclick="saveResultImage()">📷 結果を画像で保存</button>
   <button onclick="location.reload()">もう一度</button>`;
  document.getElementById('resultOv').style.display='flex';
+ window._lastResult=r;
+ try{sessionStorage.removeItem('mnm_token')}catch(e){}
 }
+// リザルト共有画像(800×480 PNG)
+window.saveResultImage=function(){
+ const r=window._lastResult;if(!r)return;
+ const c=document.createElement('canvas');c.width=800;c.height=480;
+ const g=c.getContext('2d');
+ g.fillStyle='#0d1512';g.fillRect(0,0,800,480);
+ g.strokeStyle='#e0b64f';g.lineWidth=3;g.strokeRect(10,10,780,460);
+ g.fillStyle='#e0b64f';g.font='bold 34px serif';g.textAlign='center';
+ g.fillText('夢 幻 の 森',400,64);
+ g.font='bold 22px sans-serif';
+ g.fillText(r.dragonKilled?'— 竜は倒れた —':'— マッチ終了 —',400,104);
+ g.font='14px sans-serif';g.fillStyle='#8fa598';g.fillText(r.reason,400,130);
+ const rows=r.rows.filter(x=>x.dmg>0||x.team===myTeam).sort((a,b)=>b.rp-a.rp);
+ g.textAlign='left';g.font='16px sans-serif';
+ rows.forEach((x,i)=>{const y=175+i*30;
+  g.fillStyle=TEAMCOLS[x.team];g.fillText('● チーム'+TEAMNAMES[x.team],120,y);
+  g.fillStyle='#e8e2d2';g.fillText(`与ダメ ${x.dmg}`,300,y);g.fillText(`${Math.round(x.share*100)}%`,460,y);
+  g.fillStyle='#e0b64f';g.fillText(`+${x.rp} RP`,560,y)});
+ let py=175+rows.length*30+24;
+ (r.players||[]).forEach(p=>{
+  g.fillStyle='#5bc8b0';g.fillText(p.rank||'',120,py);
+  g.fillStyle='#e8e2d2';g.fillText(`${p.name} — 累計${p.totalRp}RP(${p.matches}戦${p.wins}勝)`,220,py);py+=26});
+ g.fillStyle='#3a5248';g.font='12px sans-serif';g.textAlign='center';
+ g.fillText('mugen-no-mori prototype',400,460);
+ const a=document.createElement('a');a.download='mugen_result.png';a.href=c.toDataURL('image/png');a.click();
+};
 
 /* ---------- サウンド(prototype移植) ---------- */
 let AC=null,muted=false,amb=null;
@@ -184,10 +270,19 @@ function spr(id,key,x,y){
  s.x=x;s.y=y;s.setDepth(y);
  return s;
 }
+let ARTfns=null,pinTxts=[];
+function unitTex(cls,team,dir,skin){
+ const key=`u_${cls}_${team}_${dir}`+(skin?`_s${skin}`:'');
+ if(!scene.textures.exists(key))
+  scene.textures.addCanvas(key,ARTfns.humanoid(cls,TEAMCOLS[team]||TEAMCOLS[0],dir,skin||0));
+ return key;
+}
 function create(){
  scene=this;
- const ART=buildART(['#e0b64f','#c05a5a']);
- for(const k in ART)this.textures.addCanvas(k,ART[k]);
+ const A=buildART(TEAMCOLS);ARTfns=A;
+ for(const k in A.textures)this.textures.addCanvas(k,A.textures[k]);
+ for(let i=0;i<8;i++){const t=this.add.text(0,0,'',{fontSize:'11px',fontStyle:'bold',color:'#e8e2d2',
+  backgroundColor:'#16241fdd',padding:{x:4,y:2}}).setDepth(100001).setVisible(false);pinTxts.push(t)}
  gfx=this.add.graphics().setDepth(-100000);   // 地面・ゾーン・枯死(y深度ソートの最小値より必ず下)
  gfxOver=this.add.graphics().setDepth(100000); // バー・リング・弾・QTE
  cam=this.cameras.main;
@@ -212,6 +307,9 @@ function create(){
   }
   if(k==='g'&&lastSelf&&lastSelf.nearMerchant){room.send('buy',{item:'whet'});return}
   if(k==='5'){room.send('potion');return}
+  // 定型ピン: Z=集合 X=危険 C=装置 V=竜(マウス位置に)
+  const pk=({'z':0,'x':1,'c':2,'v':3})[k];
+  if(pk!==undefined){room.send('ping',{k:pk,x:mouse.wx,y:mouse.wy});return}
   let slot=({'1':1,'2':2,'3':3,'4':4,'e':2,'r':3,'t':4})[k];
   if(k==='w'&&!wasdUsed)slot=1;
   if(slot)room.send('cast',{slot,tx:mouse.wx,ty:mouse.wy});
@@ -256,8 +354,15 @@ function drawMinimap(s){
  if(s.dragon&&s.dragon.hp>0){g.fillStyle='#e0b64f';g.fillRect(72,72,6,6)}
  if(world.golden&&!s.golden.open){g.fillStyle=(Date.now()%800<400)?'#ffe9a8':'#c9a03a';
   g.fillRect(75+world.golden.x*sc-2,75+world.golden.y*sc-2,5,5)}
+ if(s.boss&&s.boss.hp>0){g.fillStyle='#9fd8a8';g.fillRect(75+s.boss.x*sc-2,75+s.boss.y*sc-2,5,5)}
+ if(s.npc&&!s.npc.done){g.fillStyle='#e8e2d2';g.fillRect(75+s.npc.x*sc-1,75+s.npc.y*sc-1,3,3);
+  g.strokeStyle='#ffd97a';g.strokeRect(75+s.npc.shrine.x*sc-2,75+s.npc.shrine.y*sc-2,4,4)}
+ (s.sounds||[]).forEach(sn=>{g.strokeStyle='rgba(220,220,220,.6)';
+  g.beginPath();g.arc(75+sn.x*sc,75+sn.y*sc,3,0,7);g.stroke()});
+ (s.pins||[]).forEach(p=>{g.fillStyle=['#e0b64f','#c33d2e','#5bc8b0','#b78ae0'][p.k];
+  if(Date.now()%600<350)g.fillRect(75+p.x*sc-2,75+p.y*sc-2,5,5)});
  s.units.forEach(u=>{if(u.dead)return;
-  g.fillStyle=u.downed?'#ffffff':(u.team===0?'#e0b64f':'#c05a5a');
+  g.fillStyle=u.downed?'#ffffff':(TEAMCOLS[u.team]||'#e0b64f');
   const me=u.id===myId;g.fillRect(75+u.x*sc-2,75+u.y*sc-2,me?5:3,me?5:3)});
 }
 function update(_,dms){
@@ -344,6 +449,35 @@ function update(_,dms){
   for(let k=0;k<=6;k++){const a=s.t*.4+k*Math.PI/3;
    k?gfxOver.lineTo(Math.cos(a)*70,Math.sin(a)*70):gfxOver.moveTo(Math.cos(a)*70,Math.sin(a)*70)}
   gfxOver.strokePath()}
+ // 中ボス「森の主」(大型狼・緑ティント)
+ if(s.boss&&s.boss.hp>0){seen.add('boss');
+  const B=s.boss;
+  const sp2=spr('boss','wolf',B.x,B.y-6);sp2.setScale(2.3);sp2.setTint(0x9fd8a8);
+  gfxOver.fillStyle(0x0a0f0d,1).fillRect(B.x-40,B.y-46,80,6);
+  gfxOver.fillStyle(0xc33d2e,1).fillRect(B.x-40,B.y-46,80*B.hp/B.maxHp,6);
+ }
+ // 迷い人+祠
+ if(s.npc&&!s.npc.done){seen.add('npc');
+  const N=s.npc;
+  const sp2=spr('npc',unitTex('priest',7,'down',0),N.x,N.y-7);sp2.setAlpha(.95);
+  if(N.team>=0)gfxOver.lineStyle(2,TEAMINT[N.team],.8).strokeCircle(N.x,N.y,20);
+  // 祠
+  gfx.fillStyle(0x2a3630,1).fillCircle(N.shrine.x,N.shrine.y,18);
+  gfxOver.lineStyle(2,0xffd97a,.5+.3*Math.sin(s.t*4)).strokeCircle(N.shrine.x,N.shrine.y,24);
+ }
+ // 音紋(視界外の物音 — 方向は分かるが正体不明)
+ for(const sn of (s.sounds||[])){
+  gfxOver.lineStyle(2,0xd0d0d0,.25).strokeCircle(sn.x,sn.y,26+((s.t*40)%20));
+ }
+ // ピン(チーム内共有)
+ pinTxts.forEach(t=>t.setVisible(false));
+ (s.pins||[]).forEach((p,i)=>{
+  if(i>=pinTxts.length)return;
+  const col=[0xe0b64f,0xc33d2e,0x5bc8b0,0xb78ae0][p.k];
+  gfxOver.lineStyle(3,col,Math.min(1,p.life/2));
+  gfxOver.beginPath();gfxOver.moveTo(p.x,p.y-18);gfxOver.lineTo(p.x-8,p.y-32);gfxOver.lineTo(p.x+8,p.y-32);gfxOver.closePath();gfxOver.strokePath();
+  const t=pinTxts[i];t.setVisible(true);t.setText(PIN_LABELS[p.k]+' — '+p.by);t.setPosition(p.x-t.width/2,p.y-52);
+ });
  // mobs(狼スプライト・進行方向で反転)
  for(const m of s.mobs){seen.add(m.id);
   if(m.tele)gfx.fillStyle(0xc33d2e,.4).fillCircle(m.tele.x,m.tele.y,m.tele.r);
@@ -363,7 +497,7 @@ function update(_,dms){
   if(u.dead)continue;
   seen.add(u.id);
   if(u.downed){ // ダウン: 倒れ姿+血だまり+出血タイマー
-   const spd2=spr(u.id,`u_${u.cls}_${u.team}_side`,u.x,u.y+4);
+   const spd2=spr(u.id,unitTex(u.cls,u.team,'side',u.skin),u.x,u.y+4);
    spd2.setRotation(-Math.PI/2);spd2.setAlpha(.85);spd2.setFlipX(false);
    gfx.fillStyle(0x8a1f1f,.45).fillEllipse(u.x,u.y+10,28,11);
    gfxOver.fillStyle(0x0a0f0d,1).fillRect(u.x-16,u.y-30,32,4);
@@ -379,7 +513,7 @@ function update(_,dms){
   const bob=moving?Math.sin(s.t*11+(u.x+u.y)*.05)*1.5:0;
   gfx.fillStyle(0x080c0a,.4).fillEllipse(x,y+13,20,8); // 影
   if(isMe)gfxOver.lineStyle(2,0xe8e2d2,.9).strokeEllipse(x,y+13,24,10);
-  const sp2=spr(u.id,`u_${u.cls}_${u.team}_${dd.d}`,x,y-7+bob);
+  const sp2=spr(u.id,unitTex(u.cls,u.team,dd.d,u.skin),x,y-7+bob);
   sp2.setRotation(0);sp2.setFlipX(dd.fl);sp2.setAlpha(u.stealth?.45:1);
   if(u.reveal)gfxOver.lineStyle(1,0xe0b64f,.8).strokeCircle(x,y,21);
   if(u.shield)gfxOver.lineStyle(2,0xbfeee2,.8).strokeCircle(x,y,19);
@@ -410,8 +544,24 @@ function update(_,dms){
  document.getElementById('timer').textContent=fmt(s.t);
  document.getElementById('phase').textContent=
   lastMe&&lastMe.dead?'脱落 — 観戦中':s.dragon?(s.dragon.hp>0?'竜との戦い':'決着'):s.t>=world.unsealAt-30?'封印がゆらぐ':'探索と成長';
- document.getElementById('contrib').innerHTML=(s.dragon&&(s.shares[0]||s.shares[1]))?
-  `<span style="color:#e0b64f">●金 ${s.shares[0]}%</span> <span style="color:#c05a5a">●紅 ${s.shares[1]}%</span>(竜与ダメ貢献)`:'';
+ document.getElementById('contrib').innerHTML=(s.dragon&&s.shares.some(x=>x>0))?
+  s.shares.map((sh,t2)=>sh>0?`<span style="color:${TEAMCOLS[t2]}">●${TEAMNAMES[t2]} ${sh}%</span>`:'')
+   .filter(Boolean).join(' ')+'(竜与ダメ貢献)':'';
+ document.getElementById('nightOv').style.opacity=s.night?1:0;
+ // ピン新着音
+ const pinN=(s.pins||[]).length;
+ if(pinN>prevPinN)sfx('coin',.5);
+ prevPinN=pinN;
+ // ビルド選択UI
+ const bo=lastSelf&&lastSelf.buildOffer;
+ const bov=document.getElementById('buildOv');
+ if(bo&&!result){
+  bov.style.display='block';
+  document.getElementById('buildTitle').textContent=`Lv${bo.tier===1?3:6}ビルド選択(どちらか一つ)`;
+  [0,1].forEach(i=>{const btn=document.getElementById('build'+i);
+   btn.textContent=bo.options[i];
+   btn.onclick=()=>{room.send('build',{tier:bo.tier,choice:i});bov.style.display='none'};});
+ } else bov.style.display='none';
  if(lastMe&&lastSelf){
   if(lastSelf.gold>prevGold)sfx('coin');
   if(lastSelf.lv>prevLv)sfx('level');

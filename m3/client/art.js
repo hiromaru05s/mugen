@@ -16,7 +16,8 @@ function buildART(teamColors) {
     g.putImageData(out, 0, 0); }
   function cir(g, x, y, r) { g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
 
-  function humanoid(cls, T, dir) {
+  const SKIN_TINTS = [null, '#b78ae0', '#5bc8b0', '#e08a5a', '#8fe0a8', '#3a3430']; // コスメ(全体を薄く染める)
+  function humanoid(cls, T, dir, skin) {
     const c = mk(18, 20), g = c.getContext('2d');
     const t = shade(T, .6), side = dir === 'side', upd = dir === 'up';
     g.fillStyle = '#2a2622'; g.fillRect(6, 16, 2, 3); g.fillRect(10, 16, 2, 3);
@@ -67,6 +68,11 @@ function buildART(teamColors) {
       const bx = side ? 14 : 15;
       g.fillStyle = '#8a6a42'; g.fillRect(bx, 3, 1, 11); g.fillStyle = '#bfeee2'; g.fillRect(bx + 1, 4, 1, 9);
       g.fillStyle = '#5a4a32'; g.fillRect(3, 9, 2, 4); g.fillStyle = '#5bc8b0'; g.fillRect(3, 8, 2, 1);
+    }
+    if (skin && SKIN_TINTS[skin]) { // スキン: チームスカーフの視認性を保つ薄い全体ティント
+      g.globalCompositeOperation = 'source-atop';
+      g.fillStyle = SKIN_TINTS[skin] + '38'; g.fillRect(0, 0, 18, 20);
+      g.globalCompositeOperation = 'source-over';
     }
     outline(c); return up(c, 2);
   }
@@ -140,5 +146,5 @@ function buildART(teamColors) {
   out.bush0 = bush(0); out.bush1 = bush(1);
   out.chestC = chest(false); out.chestO = chest(true);
   out.trap = trapS(); out.merchant = merchantS(); out.dragon = dragonS();
-  return out;
+  return { textures: out, humanoid }; // humanoidを公開(スキン/チーム色の遅延生成用)
 }

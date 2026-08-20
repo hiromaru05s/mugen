@@ -1,0 +1,15 @@
+{
+  "teams": 2,
+  "teamSize": 3,
+  "dragonHp": 3500,
+  "matchLen": 480,
+  "unsealAt": 240,
+  "mistEvery": 90,
+  "mistDur": 18,
+  "revealAtk": 1.4,
+  "revealHit": 0.8,
+  "downTime": 15,
+  "reviveTime": 2.5,
+  "goldenOpenAt": 120,
+  "bossAt": 180
+}

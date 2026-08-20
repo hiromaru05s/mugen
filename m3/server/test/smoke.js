@@ -26,11 +26,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     assert('lobby phase', st.snap.phase === 'lobby');
     r.send('start'); await sleep(600);
     assert('live phase', st.snap.phase === 'live');
-    assert('team filled to 3', st.snap.units.filter(u => u.team === st.init.team).length === 3);
-    const bots0 = st.snap.units.filter(u => u.bot).map(u => [u.x, u.y]);
-    await sleep(2500);
-    const bots1 = st.snap.units.filter(u => u.bot);
-    assert('bots move', bots1.some((u, i) => bots0[i] && Math.hypot(u.x - bots0[i][0], u.y - bots0[i][1]) > 30));
+    const myTeam = st.snap.units.find(u => u.id === r.sessionId).team; // チームは開始時に確定
+    assert('team filled to 3', st.snap.units.filter(u => u.team === myTeam).length === 3);
+    // Botはリーダー(人間)追従なので、プレイヤーを歩かせて追従を確認
+    const bots0 = {}; st.snap.units.filter(u => u.bot).forEach(u => bots0[u.id] = [u.x, u.y]);
+    const mv = setInterval(() => r.send('input', { mx: -1, my: 0, atk: false }), 50);
+    await sleep(3000); clearInterval(mv); r.send('input', { mx: 0, my: 0, atk: false });
+    await sleep(300);
+    assert('bots move', st.snap.units.filter(u => u.bot)
+      .some(u => bots0[u.id] && Math.hypot(u.x - bots0[u.id][0], u.y - bots0[u.id][1]) > 30));
     r.send('devTime', { t: 241 }); await sleep(500);
     assert('dragon appears', !!st.snap.dragon);
     r.send('devTeleport', { x: 100, y: 0 });
