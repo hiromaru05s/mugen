@@ -1,0 +1,21 @@
+{
+  // 夢幻の森 — Cloudflare Workers + Durable Objects (無料プランで動く構成)
+  "name": "mugen-no-mori",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-07-01",
+  // クライアント(public/)はWorkerと同一オリジンで静的配信
+  "assets": { "directory": "public", "binding": "ASSETS" },
+  "durable_objects": {
+    "bindings": [
+      { "name": "FOREST_ROOM", "class_name": "ForestRoom" }, // 1試合=1インスタンス
+      { "name": "REGISTRY", "class_name": "Registry" }        // シングルトン: マッチメイキング+RP永続化
+    ]
+  },
+  // 無料プランはSQLiteバックエンドのDOのみ利用可能
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ForestRoom", "Registry"] }
+  ],
+  "observability": { "enabled": true }
+  // テスト用チートを有効にする場合: "vars": { "M2_DEV": "1" }
+  // Supabaseミラーを使う場合: wrangler secret put SUPABASE_URL / SUPABASE_KEY
+}

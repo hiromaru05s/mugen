@@ -1,0 +1,15 @@
+{
+  "name": "mugen-no-mori-workers",
+  "version": "1.0.0",
+  "description": "夢幻の森 — Cloudflare Workers + Durable Objects版サーバー (m3の移植)",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "test": "node test/smoke.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

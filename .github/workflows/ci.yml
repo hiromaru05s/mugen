@@ -1,0 +1,18 @@
+# Workers版のスモークテスト(wrangler devをローカルモードで起動して全経路を検証)
+name: ci
+on:
+  push:
+    paths: ['workers/**', '.github/workflows/ci.yml']
+  pull_request:
+    paths: ['workers/**']
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: workers }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test
