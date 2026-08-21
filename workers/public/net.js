@@ -18,6 +18,8 @@
         leave() { try { ws.close(1000); } catch (e) { /* noop */ } },
       };
       ws.onmessage = ev => {
+        // 受信量の計測(index.htmlのFPS/NET表示が読む)
+        window.__rxB = (window.__rxB || 0) + (typeof ev.data === 'string' ? ev.data.length : 0);
         let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.t === 'joined') { // サーバーからの参加ハンドシェイク
           joined = true;

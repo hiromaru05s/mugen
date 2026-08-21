@@ -3,3 +3,5 @@ node_modules/
 *.log
 nohup.out
 .wrangler/
+gameserver/.env
+gameserver/node_modules/

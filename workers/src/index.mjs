@@ -12,10 +12,25 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // クライアントに認証設定を渡す(publishable keyは公開情報)
+    // クライアントに認証設定と接続先を渡す(publishable keyは公開情報)
+    // gameServer: 試合サーバーのURL。空ならこのWorker自身(DO)に繋ぐ = 従来どおり。
+    // 移設のロールバックはこの変数を消すだけでよい(クライアント配布は不要)。
     if (url.pathname === '/api/config') {
       const pk = env.CLERK_PUBLISHABLE_KEY || '';
-      return json({ authEnabled: !!issuerFromPublishableKey(pk), clerkPublishableKey: pk });
+      return json({ authEnabled: !!issuerFromPublishableKey(pk), clerkPublishableKey: pk,
+        gameServer: env.GAME_SERVER_WSS || '' });
+    }
+
+    // 外部ゲームサーバー(VM)からRegistryへの中継。共有秘密を持つ相手だけ、
+    // RPの読み書きに必要な2経路だけを通す(link/me/assignは通さない = 最小権限)。
+    if (url.pathname.startsWith('/api/gs/')) {
+      const sub = url.pathname.slice('/api/gs'.length);
+      const secret = env.GAME_SERVER_SECRET || '';
+      const got = request.headers.get('X-GS-Secret') || '';
+      if (!secret || got.length !== secret.length || got !== secret) return new Response('forbidden', { status: 403 });
+      if (sub !== '/record' && sub !== '/rp') return new Response('not found', { status: 404 });
+      const reg = env.REGISTRY.get(env.REGISTRY.idFromName('main'));
+      return reg.fetch(new Request('https://registry' + sub + url.search, request));
     }
 
     // 個人戦績は本人のみ: トークンを検証し、その本人のuidでしか引けない
@@ -89,6 +104,8 @@ async function joinFlow(request, env, url) {
   const reg = env.REGISTRY.get(env.REGISTRY.idFromName('main'));
   for (let i = 0; i < 3; i++) {
     const roomName = await (await reg.fetch('https://registry/assign')).text();
+    // 配置は自動(最初のjoinを処理したエッジの近く)に任せる。locationHintで地域を固定すると、
+    // 無料プランで韓国→LAXにルーティングされる場合にエッジ⇔DO間の往復が上乗せされて悪化する
     const stub = env.FOREST_ROOM.get(env.FOREST_ROOM.idFromName(roomName));
     const q = new URLSearchParams({
       room: roomName,

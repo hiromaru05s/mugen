@@ -1,12 +1,16 @@
-# Workers版のスモークテスト(wrangler devをローカルモードで起動して全経路を検証)
+# 夢幻の森 — CI
+#  workers  : Workers版(Durable Object)のスモークテスト
+#  gameserver: Node版ゲームサーバー単体 + Workers連携込みの統合テスト
+# ゲーム本体(workers/src/game.mjs)は両サーバーが共有しているので、
+# ルールを変えたら必ず両方が回る。移設後に片方だけ壊れるのを防ぐ。
 name: ci
 on:
   push:
-    paths: ['workers/**', '.github/workflows/ci.yml']
+    paths: ['workers/**', 'gameserver/**', '.github/workflows/ci.yml']
   pull_request:
-    paths: ['workers/**']
+    paths: ['workers/**', 'gameserver/**']
 jobs:
-  smoke:
+  workers:
     runs-on: ubuntu-latest
     defaults:
       run: { working-directory: workers }
@@ -16,3 +20,22 @@ jobs:
         with: { node-version: 22 }
       - run: npm ci
       - run: npm test
+
+  gameserver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: install (gameserver)
+        working-directory: gameserver
+        run: npm ci
+      - name: install (workers — 統合テストがwrangler devを起動するため)
+        working-directory: workers
+        run: npm ci
+      - name: ゲームサーバー単体
+        working-directory: gameserver
+        run: npm test
+      - name: Workers連携(RPが永続化されるか)
+        working-directory: gameserver
+        run: npm run test:integration

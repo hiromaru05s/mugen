@@ -4,7 +4,30 @@
     {
       "name": "workers-dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["wrangler", "dev", "--port", "8787"],
+      "runtimeArgs": [
+        "wrangler",
+        "dev",
+        "--port",
+        "8787"
+      ],
+      "cwd": "workers",
+      "port": 8787
+    },
+    {
+      "name": "workers-dev-migrated",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "wrangler",
+        "dev",
+        "--port",
+        "8787",
+        "--var",
+        "M2_DEV:1",
+        "--var",
+        "GAME_SERVER_SECRET:devsecret",
+        "--var",
+        "GAME_SERVER_WSS:ws://localhost:8080"
+      ],
       "cwd": "workers",
       "port": 8787
     }

@@ -11,6 +11,13 @@
  #hud{position:fixed;top:8px;left:50%;transform:translateX(-50%);background:rgba(22,36,31,.85);
   border:1px solid #2c4038;border-radius:8px;padding:6px 14px;font-size:13px;z-index:5;display:flex;gap:14px}
  #hud b{color:#e0b64f}
+ #perf{position:fixed;right:10px;top:168px;z-index:5;display:none;gap:9px;
+  background:rgba(22,36,31,.85);border:1px solid #2c4038;border-radius:8px;padding:3px 9px;
+  font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#5f7169;white-space:nowrap}
+ #perf.on{display:flex}
+ #perf b{color:#8fe0a8;font-weight:700}
+ #pfLow{color:#e0b64f}
+ body.touch #perf{top:128px;font-size:10px;gap:7px;padding:2px 7px}
  #contrib{position:fixed;top:44px;left:50%;transform:translateX(-50%);font-size:11px;z-index:5;
   background:rgba(22,36,31,.85);border:1px solid #2c4038;border-radius:8px;padding:3px 10px}
  #contrib:empty{display:none}
@@ -106,56 +113,59 @@
  body.touch #minimap{width:110px;height:110px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script src="i18n.js"></script>
 <script src="net.js"></script>
 <script src="home.js"></script>
 <script src="art.js"></script>
 </head>
 <body>
-<div id="hud"><span id="timer">--:--</span><span id="phase">職を選択</span></div>
+<div id="hud"><span id="timer">--:--</span><span id="phase" data-i18n="phasePick"></span></div>
 <div id="contrib"></div>
+<div id="perf"><span>FPS <b id="pfFps">--</b></span><span>PING <b id="pfPing">--</b>ms<b id="pfColo" style="color:#5f7169;font-weight:400"></b></span><span>NET <b id="pfSnap">--</b>/s</span><span><b id="pfKb">--</b>KB/s</span><span id="pfLow" style="display:none" data-i18n="lite"></span></div>
 <!-- ===== ホーム(入口) ===== -->
 <div id="home" class="screen">
  <div class="panel homePanel">
   <div class="brand">夢 幻 の 森</div>
-  <div class="tagline">3人1組で森の深部へ。竜を討つのは、どのチームか。</div>
-  <div id="authRow" class="authRow"><span class="muted">読み込み中…</span></div>
+  <div class="tagline" data-i18n="tagline"></div>
+  <div id="authRow" class="authRow"><span class="muted" data-i18n="loading"></span></div>
   <div class="menu">
-   <button class="mbtn primary" onclick="MNM.startFlow()">▶ はじめる</button>
-   <button class="mbtn" onclick="MNM.go('mystats')">📊 自分の戦績</button>
-   <button class="mbtn" onclick="MNM.go('rank')">🏆 ランキング</button>
-   <button class="mbtn" onclick="MNM.go('howto')">📖 遊び方</button>
+   <button class="mbtn primary" onclick="MNM.startFlow()" data-i18n="menuStart"></button>
+   <button class="mbtn" onclick="MNM.go('mystats')" data-i18n="menuStats"></button>
+   <button class="mbtn" onclick="MNM.go('rank')" data-i18n="menuRank"></button>
+   <button class="mbtn" onclick="MNM.go('howto')" data-i18n="menuHowto"></button>
   </div>
   <div id="homeReconnect" class="resumeBox" style="display:none"></div>
+  <div id="langSwitch" style="margin-top:12px;text-align:center"></div>
  </div>
 </div>
 
 <!-- ===== ログイン / 新規登録 ===== -->
 <div id="auth" class="screen" style="display:none"><div class="panel authPanel">
- <button class="back" onclick="MNM.go('home')">← もどる</button>
+ <button class="back" onclick="MNM.go('home')" data-i18n="back"></button>
  <div class="brand" style="font-size:22px">夢 幻 の 森</div>
- <p class="muted small" style="margin:10px 0 18px">アカウントを作ると、スマホでもPCでも同じ戦績で遊べます</p>
+ <p class="muted small" style="margin:10px 0 18px" data-i18n="authLead"></p>
 
  <div id="authStep1">
-  <button class="mbtn gbtn" onclick="MNM.startGoogle()"><span class="glogo">G</span> Googleで続ける</button>
-  <button class="mbtn" onclick="MNM.showEmail()">✉ メールアドレスで続ける</button>
-  <div class="orline"><span>または</span></div>
-  <button class="mbtn ghost" onclick="MNM.go('play')">ゲストのまま遊ぶ</button>
-  <p class="muted small" style="margin-top:12px">ゲストの戦績は、あとからログインすると引き継がれます</p>
+  <button class="mbtn gbtn" onclick="MNM.startGoogle()"><span class="glogo">G</span> <span data-i18n="authGoogle"></span></button>
+  <button class="mbtn" onclick="MNM.showEmail()" data-i18n="authEmail"></button>
+  <div class="orline"><span data-i18n="or"></span></div>
+  <button class="mbtn ghost" onclick="MNM.go('play')" data-i18n="authGuest"></button>
+  <p class="muted small" style="margin-top:12px" data-i18n="authGuestNote"></p>
  </div>
 
  <div id="authStep2" style="display:none">
-  <p class="muted small" style="margin-bottom:8px">メールアドレスに確認コードを送ります</p>
+  <p class="muted small" style="margin-bottom:8px" data-i18n="authSendLead"></p>
   <input id="authEmail" type="email" placeholder="you@example.com" style="width:100%;box-sizing:border-box">
-  <button class="mbtn primary" style="margin-top:8px" onclick="MNM.sendCode()">確認コードを送る</button>
-  <button class="mbtn ghost" onclick="MNM.authBack()">← もどる</button>
+  <button class="mbtn primary" style="margin-top:8px" onclick="MNM.sendCode()" data-i18n="authSend"></button>
+  <button class="mbtn ghost" onclick="MNM.authBack()" data-i18n="back"></button>
  </div>
 
  <div id="authStep3" style="display:none">
-  <p class="muted small" style="margin-bottom:8px"><span id="authSentTo"></span> に届いた6桁のコードを入力</p>
+  <p class="muted small" style="margin-bottom:8px" id="authCodeLead"></p>
   <input id="authCode" inputmode="numeric" maxlength="6" placeholder="000000"
    style="width:100%;box-sizing:border-box;letter-spacing:.5em;font-size:20px">
-  <button class="mbtn primary" style="margin-top:8px" onclick="MNM.verifyCode()">ログイン</button>
-  <button class="mbtn ghost" onclick="MNM.authBack()">← メールを変更</button>
+  <button class="mbtn primary" style="margin-top:8px" onclick="MNM.verifyCode()" data-i18n="authLogin"></button>
+  <button class="mbtn ghost" onclick="MNM.authBack()" data-i18n="authEditMail"></button>
  </div>
 
  <div id="authMsg" class="authMsg"></div>
@@ -163,61 +173,52 @@
 
 <!-- ===== プレイ(職選択) ===== -->
 <div id="select" class="screen" style="display:none"><div class="panel">
- <button class="back" onclick="MNM.go('home')">← もどる</button>
- <h2 class="ptitle">出撃準備</h2>
- <p class="muted small">足りない枠はBotが埋めて常に3v3。<span id="howto"></span></p>
+ <button class="back" onclick="MNM.go('home')" data-i18n="back"></button>
+ <h2 class="ptitle" data-i18n="selTitle"></h2>
+ <p class="muted small"><span data-i18n="selBots"></span><span id="howto"></span></p>
  <div style="margin-bottom:8px">
-  <input id="pname" placeholder="なまえ" maxlength="12">
-  <input id="pparty" placeholder="パーティ合言葉(任意)" maxlength="12">
+  <input id="pname" data-i18n-ph="selName" maxlength="12">
+  <input id="pparty" data-i18n-ph="selParty" maxlength="12">
  </div>
- <div class="muted small" style="margin-bottom:8px">スキン: <span id="skins2"></span></div>
- <div class="muted small" style="margin-bottom:4px">職を選ぶと出撃します</div>
- <div>
-  <button onclick="pick('warrior')">⚔ 近接</button><button onclick="pick('mage')">✦ 魔法</button>
-  <button onclick="pick('thief')">◆ 盗賊</button><button onclick="pick('priest')">✚ 僧侶</button>
-  <button onclick="pick('ranger')">➹ 遠距離</button>
+ <div class="muted small" style="margin-bottom:8px"><span data-i18n="selSkin"></span> <span id="skins2"></span></div>
+ <div class="muted small" style="margin-bottom:4px" data-i18n="selGo"></div>
+ <div id="clsBtns">
+  <button onclick="pick('warrior')"></button><button onclick="pick('mage')"></button>
+  <button onclick="pick('thief')"></button><button onclick="pick('priest')"></button>
+  <button onclick="pick('ranger')"></button>
  </div>
  <div id="reconnectRow" class="resumeBox" style="display:none"></div>
  </div></div>
 
 <!-- ===== 自分の戦績(本人のみ) ===== -->
 <div id="mystats" class="screen" style="display:none"><div class="panel wide">
- <button class="back" onclick="MNM.go('home')">← もどる</button>
- <h2 class="ptitle">自分の戦績</h2>
- <div id="statsBody"><span class="muted">読み込み中…</span></div>
+ <button class="back" onclick="MNM.go('home')" data-i18n="back"></button>
+ <h2 class="ptitle" data-i18n="stTitle"></h2>
+ <div id="statsBody"><span class="muted" data-i18n="loading"></span></div>
 </div></div>
 
 <!-- ===== ランキング ===== -->
 <div id="rank" class="screen" style="display:none"><div class="panel wide">
- <button class="back" onclick="MNM.go('home')">← もどる</button>
- <h2 class="ptitle">ランキング</h2>
- <div id="rankBody"><span class="muted">読み込み中…</span></div>
+ <button class="back" onclick="MNM.go('home')" data-i18n="back"></button>
+ <h2 class="ptitle" data-i18n="rankTitle"></h2>
+ <div id="rankBody"><span class="muted" data-i18n="loading"></span></div>
 </div></div>
 
 <!-- ===== 遊び方 ===== -->
 <div id="howtoScr" class="screen" style="display:none"><div class="panel wide">
- <button class="back" onclick="MNM.go('home')">← もどる</button>
- <h2 class="ptitle">遊び方</h2>
- <div class="howtoBody">
-  <p><b>目的</b> — 10分以内に森の最奥の<b>竜</b>を討つ。RPは<b>チームの竜への与ダメージ割合</b>で配分される。</p>
-  <p><b>操作(PC)</b> — WASD/矢印で移動、クリックorSpaceで攻撃、1-4(E/R/T)でスキル、<kbd>5</kbd>ポーション、<kbd>F</kbd>装置/蘇生/購入、<kbd>G</kbd>砥石、<kbd>Z/X/C/V</kbd>ピン、<kbd>Tab</kbd>観戦切替、<kbd>M</kbd>ミュート。</p>
-  <p><b>操作(スマホ)</b> — 左下スティックで移動、⚔で攻撃(自動照準)、スキルは枠をタップ、📍でピン、死んだら👁で観戦切替。</p>
-  <p><b>隠れる</b> — 茂みに入ると敵から見えない。ただし<b>攻撃すると1.4秒露見</b>し、HPが55%を切ると<b>血の足跡</b>が残る。</p>
-  <p><b>ダウン&蘇生</b> — HP0で即死ではなく15秒ダウン。味方が近づいて<kbd>F</kbd>長押しで復活できる。味方が全員倒れていると即脱落。</p>
-  <p><b>封印装置</b> — 深層の3基を解除するとチームの対竜与ダメが+12%。盗賊は解除が速い。</p>
-  <p><b>枯死圧</b> — 時間とともに森の外周が枯れる。外にいるとダメージ+視界が狭まる。</p>
-  <p><b>パーティ</b> — 同じ合言葉を入れた人とは<b>必ず同じチーム</b>になる。招待リンクを送れば自動で入る。</p>
- </div>
+ <button class="back" onclick="MNM.go('home')" data-i18n="back"></button>
+ <h2 class="ptitle" data-i18n="howtoTitle"></h2>
+ <div class="howtoBody" data-i18n="howtoBody"></div>
 </div></div>
 
 <div id="lobbyOv" style="display:none;position:fixed;inset:0;background:rgba(8,14,11,.9);z-index:9;align-items:center;justify-content:center">
  <div class="panel">
-  <h2 style="color:#e0b64f">待機ロビー</h2>
+  <h2 style="color:#e0b64f" data-i18n="lobbyTitle"></h2>
   <div id="roster" style="text-align:left;font-size:13px;margin:10px 0"></div>
-  <p style="color:#8fa598;font-size:12px">同じ合言葉のパーティは必ず同チーム。空き枠はBotが埋める</p>
-  <button onclick="room.send('start')" style="border-color:#e0b64f">マッチ開始</button>
-  <button onclick="room.send('start',{night:true})" style="border-color:#7a5f9a">🌙 夜マッチで開始</button>
-  <div style="margin-top:6px"><button onclick="copyInvite()" style="font-size:12px">🔗 招待リンクをコピー</button></div>
+  <p style="color:#8fa598;font-size:12px" data-i18n="lobbyNote"></p>
+  <button onclick="room.send('start')" style="border-color:#e0b64f" data-i18n="lobbyStart"></button>
+  <button onclick="room.send('start',{night:true})" style="border-color:#7a5f9a" data-i18n="lobbyNight"></button>
+  <div style="margin-top:6px"><button onclick="copyInvite()" style="font-size:12px" data-i18n="lobbyInvite"></button></div>
  </div></div>
 <div id="buildOv" style="display:none;position:fixed;bottom:120px;left:50%;transform:translateX(-50%);z-index:8">
  <div class="panel" style="padding:14px">
@@ -249,16 +250,17 @@
 <div id="spectBtn" class="tbtn">👁</div>
 <div id="pinBar" class="tbtn">📍</div>
 <div id="pinOpts">
- <button class="pinopt" style="border-color:#e0b64f" onpointerdown="sendPin(0)">集合</button>
- <button class="pinopt" style="border-color:#c33d2e" onpointerdown="sendPin(1)">危険</button>
- <button class="pinopt" style="border-color:#5bc8b0" onpointerdown="sendPin(2)">装置</button>
- <button class="pinopt" style="border-color:#b78ae0" onpointerdown="sendPin(3)">竜</button>
+ <button class="pinopt" style="border-color:#e0b64f" onpointerdown="sendPin(0)"></button>
+ <button class="pinopt" style="border-color:#c33d2e" onpointerdown="sendPin(1)"></button>
+ <button class="pinopt" style="border-color:#5bc8b0" onpointerdown="sendPin(2)"></button>
+ <button class="pinopt" style="border-color:#b78ae0" onpointerdown="sendPin(3)"></button>
 </div>
 <script>
 'use strict';
-// 既定は同一オリジン(WorkerがクライアントとWebSocketの両方を配る)。#ws://... で上書き可能
-const ENDPOINT = location.hash.slice(1) ||
- (location.protocol.startsWith('http') ? location.origin.replace(/^http/, 'ws') : 'ws://localhost:8787');
+// 接続先は MNM.gameWs() が決める(/api/config の gameServer > #wss://上書き > 同一オリジン)。
+// 試合サーバーをVMへ移設してもクライアントのコードは変わらない。
+const ENDPOINT = () => (window.MNM ? MNM.gameWs()
+ : (location.protocol.startsWith('http') ? location.origin.replace(/^http/, 'ws') : 'ws://localhost:8787'));
 const INTERP = 0.1;
 let room=null,myId=null,myTeam=0,myCls='warrior',world=null,mySkills=[],myStats=null;
 let snaps=[],fxList=[],lastMe=null,lastSelf=null,pred=null,result=null;
@@ -270,23 +272,96 @@ const joyVec={mx:0,my:0};let touchAtk=false,spectIdx=0,spectName='';
 // 定型ピン(タッチ用): 自分の現在地に送る(Z/X/C/Vと同じ経路・サーバー側1.5秒レート制限)
 window.sendPin=function(k){
  if(room&&pred&&!result)room.send('ping',{k,x:pred.x,y:pred.y});
- document.getElementById('pinOpts').style.display='none';
+ setSty('pinOpts','display','none');
 };
-const GLYPH={warrior:'⚔',mage:'✦',thief:'◆',priest:'✚',ranger:'➹'};
 const TEAMCOLS=['#e0b64f','#c05a5a','#5a7ec0','#7ec05a','#b78ae0','#5bc8b0','#e08a5a','#d0d0d0','#c0c05a','#8a6a42'];
-const TEAMNAMES=['金','紅','蒼','翠','紫','白','橙','灰','黄','茶'];
 const TEAMINT=TEAMCOLS.map(c=>parseInt(c.slice(1),16));
-const PIN_LABELS=['集合','危険','装置','竜'];
+const PIN_LABELS=I18N.pins;
 const SKIN_DOTS=['#e8e2d2','#b78ae0','#5bc8b0','#e08a5a','#8fe0a8','#3a3430'];
 let mySkin=0,wasdUsed=false,prevPinN=0;
+
+/* ---------- DOM更新の間引き ----------
+ * 毎フレームのinnerHTML/textContent書き換えはレイアウト再計算を誘発してフレーム落ちの主因になる。
+ * 値が変わった時だけ書く。 */
+const _D={};const el=id=>_D[id]||(_D[id]=document.getElementById(id));
+const _last={};
+function setTxt(id,v){if(_last['t'+id]===v)return;_last['t'+id]=v;el(id).textContent=v}
+function setHtml(id,v){if(_last['h'+id]===v)return;_last['h'+id]=v;el(id).innerHTML=v}
+function setSty(id,p,v){const k='s'+id+'.'+p;if(_last[k]===v)return;_last[k]=v;el(id).style[p]=v}
+
+/* ---------- 計測(FPS / 往復遅延 / スナップ受信レート) ---------- */
+const PERF={ft:16.7,fps:60,frames:0,ping:0,snapN:0,snapRate:0,low:false,lowT:0,on:true};
+try{PERF.on=localStorage.getItem('mnm_perf')!=='0'}catch(e){}
+let pingTimer=null;
+function startPing(){
+ clearInterval(pingTimer);
+ pingTimer=setInterval(()=>{if(room)room.send('rtt',{ts:performance.now()})},1000);
+}
+// 描画ループ側: フレーム時間のEMA(表示の即応性)とフレーム数(実測FPS)だけ数える
+function perfTick(dms){
+ PERF.ft+=(Math.min(200,dms)-PERF.ft)*.1;
+ PERF.fps=1000/Math.max(.1,PERF.ft);
+ PERF.frames++;
+}
+// 表示更新はrAFではなくタイマー(裏タブでrAFが止まっても計測窓が壊れない)
+let perfUiT=performance.now();
+setInterval(()=>{
+ const now=performance.now(),el2=(now-perfUiT)/1000;perfUiT=now;
+ PERF.snapRate=PERF.snapN/el2;PERF.snapN=0;
+ const measured=PERF.frames/el2;PERF.frames=0;
+ if(!PERF.on)return;
+ const f=measured>0?Math.round(Math.min(measured,PERF.fps)):0;  // 実測とEMAの低い方=体感に近い
+ setTxt('pfFps',f?String(f):'--');
+ setSty('pfFps','color',f>=55?'#8fe0a8':f>=40?'#e0b64f':'#c33d2e');
+ const p=PERF.ping;
+ setTxt('pfPing',p?String(p):'--');
+ setSty('pfPing','color',!p?'#5f7169':p<60?'#8fe0a8':p<130?'#e0b64f':'#c33d2e');
+ setTxt('pfSnap',PERF.snapRate>=.5?PERF.snapRate.toFixed(0):'--');
+ const rx=window.__rxB||0,kbs=(rx-(PERF.rxLast||0))/1024/el2;PERF.rxLast=rx;
+ setTxt('pfKb',PERF.snapRate>=.5?kbs.toFixed(0):'--');
+ setSty('pfLow','display',PERF.low?'inline':'none');
+},500);
+function perfToggle(){
+ PERF.on=!PERF.on;el('perf').classList.toggle('on',PERF.on);
+ try{localStorage.setItem('mnm_perf',PERF.on?'1':'0')}catch(e){}
+}
+addEventListener('DOMContentLoaded',()=>{if(PERF.on)el('perf').classList.add('on')});
+// 接続先のCloudflareデータセンターを表示(例: NRT=東京, ICN=ソウル, LAX=ロサンゼルス)。
+// 遠い拠点に乗っているとpingの下限がそこまでの往復時間になる — ラグ相談の切り分け用
+fetch('/cdn-cgi/trace').then(r=>r.text()).then(t=>{
+ const m=t.match(/^colo=(\w+)/m);
+ if(m)setTxt('pfColo','·'+m[1]);
+}).catch(()=>{});
+
+/* ---------- スキルバー(1度だけ組み立て、以後はCDだけ更新) ---------- */
+let skillDom=null;
+function buildSkillBar(){
+ const box=el('skills');
+ box.innerHTML=mySkills.map((sk,i)=>
+  `<div class="sk" onpointerdown="touchSkill(${i+1})"><b>${['W/1','E/2','R/3','T/4'][i]}</b>${I18N.skillName(myCls,i+1)||sk.jp}`+
+  `<span style="font-size:9px;color:#7ab0d0">${sk.mp}</span><div class="cd" style="display:none"></div></div>`).join('')+
+  `<div class="sk" onpointerdown="if(room&&!result)room.send('potion')"><b>5</b>${T('potion')}<span class="potN">0</span></div>`;
+ skillDom={cds:Array.from(box.querySelectorAll('.cd')),pot:box.querySelector('.potN')};
+}
+function updateSkillBar(cds,potions){
+ if(!skillDom)return;
+ for(let i=0;i<skillDom.cds.length;i++){
+  const d=skillDom.cds[i],v=cds[i]||0,txt=v>0?v.toFixed(1):'';
+  if(d._v===txt)continue;
+  d._v=txt;d.textContent=txt;d.style.display=v>0?'flex':'none';
+ }
+ if(skillDom.pot&&skillDom.pot._v!==potions){skillDom.pot._v=potions;skillDom.pot.textContent=potions}
+}
 
 // スキン選択UI
 addEventListener('DOMContentLoaded',()=>{
  document.getElementById('skins2').innerHTML=SKIN_DOTS.map((c,i)=>
   `<span onclick="setSkin(${i})" id="sk${i}" style="display:inline-block;width:16px;height:16px;border-radius:50%;
    background:${c};margin:0 3px;cursor:pointer;border:2px solid ${i===0?'#e0b64f':'#3a5248'}"></span>`).join('');
- document.getElementById('howto').innerHTML=
-  'WASD/矢印移動・クリックorSpace攻撃・1-4(E/R/T)スキル・<kbd>5</kbd>薬・<kbd>F</kbd>装置/蘇生/購入・<kbd>G</kbd>砥石';
+ document.getElementById('howto').innerHTML=T('howtoPC');
+ document.querySelectorAll('#clsBtns button').forEach((b,i)=>
+  b.textContent=I18N.clsName(['warrior','mage','thief','priest','ranger'][i]));
+ document.querySelectorAll('#pinOpts .pinopt').forEach((b,i)=>b.textContent=PIN_LABELS[i]);
  // 前回の名前・合言葉・スキンを復元(招待リンクの?p=が最優先)
  try{
   const prof=JSON.parse(localStorage.getItem('mnm_prof')||'null');
@@ -302,7 +377,7 @@ addEventListener('DOMContentLoaded',()=>{
  // ---- タッチUI配線 ----
  if(TOUCH){
   document.body.classList.add('touch');
-  document.getElementById('howto').innerHTML='左下スティックで移動・<b>⚔</b>で攻撃(自動照準)・スキルと薬は枠をタップ・<b>F</b>=装置/蘇生/購入';
+  document.getElementById('howto').innerHTML=T('howtoTouch');
   const joy=document.getElementById('joy'),knob=document.getElementById('joyKnob');
   let jid=null;
   const setKnob=(dx,dy)=>{knob.style.left=(40+dx)+'px';knob.style.top=(40+dy)+'px'};
@@ -325,8 +400,7 @@ addEventListener('DOMContentLoaded',()=>{
   document.getElementById('gBtn').addEventListener('pointerdown',e=>{doG();e.preventDefault()});
   document.getElementById('spectBtn').addEventListener('pointerdown',e=>{spectIdx++;e.preventDefault()});
   document.getElementById('pinBar').addEventListener('pointerdown',e=>{
-   const o=document.getElementById('pinOpts');
-   o.style.display=o.style.display==='block'?'none':'block';e.preventDefault()});
+   setSty('pinOpts','display',el('pinOpts').style.display==='block'?'none':'block');e.preventDefault()});
  }
  // iOS等はユーザー操作までAudioContextが停止しているので、最初のタップで再開
  addEventListener('pointerdown',()=>{try{if(AC)AC.resume()}catch(e){}},true);
@@ -335,27 +409,28 @@ addEventListener('DOMContentLoaded',()=>{
 window.copyInvite=async function(){
  const u=location.origin+location.pathname+(window.myParty?'?p='+encodeURIComponent(window.myParty):'');
  try{await navigator.clipboard.writeText(u);
-  announce(window.myParty?'招待リンクをコピーした — 開くだけで同チームになる':'招待リンクをコピーした(合言葉なし=チーム保証なし)');}
- catch(e){prompt('このURLを友達に送る:',u)}
+  announce(window.myParty?T('inviteCopied'):T('inviteCopiedNoParty'));}
+ catch(e){prompt(T('invitePrompt'),u)}
 };
 window.setSkin=i=>{mySkin=i;SKIN_DOTS.forEach((_,j)=>
  document.getElementById('sk'+j).style.borderColor=j===i?'#e0b64f':'#3a5248')};
 
 function wireRoom(){
  MNM.hideAll();
- document.getElementById('bars').style.display='block';
- document.getElementById('skills').style.display='flex';
+ el('bars').style.display='block';
+ el('skills').style.display='flex';
  try{sessionStorage.setItem('mnm_token',room.reconnectionToken)}catch(e){}
  room.onMessage('init',m=>{myId=m.id;myTeam=m.team;world=m;mySkills=m.skills;myStats=m.stats;myCls=m.cls;
-  document.getElementById('clsName').textContent=GLYPH[m.cls]+(m.team>=0?' チーム'+TEAMNAMES[m.team]:'')});
+  buildSkillBar();
+  setTxt('clsName',I18N.clsName(m.cls)+(m.team>=0?' '+I18N.teamName(m.team):''))});
  room.onMessage('team',m=>{myTeam=m.team;
-  document.getElementById('clsName').textContent=GLYPH[myCls]+' チーム'+TEAMNAMES[m.team]});
- room.onMessage('snap',s=>{snaps.push(s);if(snaps.length>40)snaps.shift();
+  setTxt('clsName',I18N.clsName(myCls)+' '+I18N.teamName(m.team))});
+ room.onMessage('snap',s=>{PERF.snapN++;snaps.push(s);if(snaps.length>40)snaps.shift();
   if(s.phase==='lobby'&&s.roster){
-   document.getElementById('roster').innerHTML=s.roster.map(r=>
-    `<div>● ${r.name} <span style="color:#5bc8b0;font-size:11px">${r.rank||''}</span> (${r.cls})`+
-    `${r.party?` <span style="color:#e0b64f;font-size:11px">[${r.party}]</span>`:''}</div>`).join('');
-  } else document.getElementById('lobbyOv').style.display='none';
+   setHtml('roster',s.roster.map(r=>
+    `<div>● ${r.name} <span style="color:#5bc8b0;font-size:11px">${I18N.rankName(r.rank)}</span> (${I18N.clsName(r.cls)})`+
+    `${r.party?` <span style="color:#e0b64f;font-size:11px">[${r.party}]</span>`:''}</div>`).join(''));
+  } else setSty('lobbyOv','display','none');
   const me=s.units.find(u=>u.id===myId);lastSelf=s.me;
   if(me){lastMe=me;
    if(!pred)pred={x:me.x,y:me.y};
@@ -367,22 +442,26 @@ function wireRoom(){
   if(f.kind==='swing'){f.life=.16;fxList.push(f);
    if(pred){const d=Math.hypot(f.x-pred.x,f.y-pred.y);if(d<600)sfx('swing',Math.max(.2,1-d/600))}}
   if(f.kind==='gimmick')sfx('gim');
-  if(f.kind==='unseal'){sfx('unseal');announce('封印が解けた — 竜が目覚める')}
+  if(f.kind==='unseal'){sfx('unseal');announce(T('axUnseal'))}
   if(f.kind==='matchStart')sfx('level');
-  if(f.kind==='down'){sfx('hit');announce(f.team===myTeam?`${f.name}がダウン! 近づいてFで蘇生`:`${f.name}を仕留めた — 追撃で確殺できる`)}
-  if(f.kind==='revive'){sfx('heal');if(f.team===myTeam)announce(`${f.name}が立ち上がった!`)}
-  if(f.kind==='mist'){sfx('unseal',.4);announce('夢幻の霧が立ちこめる — 視界が狭まる…');document.getElementById('mistOv').style.opacity=1}
-  if(f.kind==='mistEnd'){announce('霧が晴れた');document.getElementById('mistOv').style.opacity=0}
-  if(f.kind==='golden'){sfx('victory',.6);announce(f.team===myTeam?'黄金の宝箱を手に入れた! 攻撃+10%':'黄金の宝箱は奪われた…')}
-  if(f.kind==='roar'){sfx('unseal',.8);announce('竜が咆哮する — 全員の姿が暴かれた!')}
-  if(f.kind==='matchStart'&&f.night){document.getElementById('nightOv').style.opacity=1;announce('🌙 夜の森 — 視界が悪い…')}
-  if(f.kind==='boss'){sfx('unseal',.5);announce('森の主が目覚めた — 討伐したチームは対竜+8%')}
-  if(f.kind==='bossDown'){sfx('victory',.5);announce(f.team===myTeam?'森の主を討伐! 対竜与ダメ+8%':'森の主は他チームに討たれた')}
-  if(f.kind==='npc'){announce('迷い人が現れた — 祠まで護衛すると報酬(横取り可)')}
-  if(f.kind==='npcDone'){sfx('coin');announce(f.team===myTeam?'迷い人を送り届けた! +200G':'迷い人は他チームが送り届けた')}
-  if(f.kind==='alarm'&&f.team===myTeam){sfx('gim',.7);announce('警報罠が敵を捕捉! 位置をマークした')}
+  if(f.kind==='down'){sfx('hit');announce(T(f.team===myTeam?'axDownAlly':'axDownEnemy',{name:f.name}))}
+  if(f.kind==='revive'){sfx('heal');if(f.team===myTeam)announce(T('axRevive',{name:f.name}))}
+  if(f.kind==='mist'){sfx('unseal',.4);announce(T('axMist'));document.getElementById('mistOv').style.opacity=1}
+  if(f.kind==='mistEnd'){announce(T('axMistEnd'));document.getElementById('mistOv').style.opacity=0}
+  if(f.kind==='golden'){sfx('victory',.6);announce(T(f.team===myTeam?'axGolden':'axGoldenLost'))}
+  if(f.kind==='roar'){sfx('unseal',.8);announce(T('axRoar'))}
+  if(f.kind==='matchStart'&&f.night){document.getElementById('nightOv').style.opacity=1;announce(T('axNight'))}
+  if(f.kind==='boss'){sfx('unseal',.5);announce(T('axBoss'))}
+  if(f.kind==='bossDown'){sfx('victory',.5);announce(T(f.team===myTeam?'axBossWin':'axBossLost'))}
+  if(f.kind==='npc'){announce(T('axNpc'))}
+  if(f.kind==='npcDone'){sfx('coin');announce(T(f.team===myTeam?'axNpcWin':'axNpcLost'))}
+  if(f.kind==='alarm'&&f.team===myTeam){sfx('gim',.7);announce(T('axAlarm'))}
  });
  room.onMessage('result',r=>{result=r;sfx(r.dragonKilled?'victory':'hit');showResult(r)});
+ // 往復遅延: サーバーはゲームロジックを通さず即エコーするので、実質の通信遅延が測れる
+ room.onMessage('rtt',m=>{const rt=performance.now()-((m&&m.ts)||0);
+  if(rt>=0&&rt<10000)PERF.ping=PERF.ping?Math.round(PERF.ping*.6+rt*.4):Math.round(rt)});
+ startPing();
  startAmbient();
  room.send('ready');
  // input送信は「変化時+2秒ハートビート」に間引く(サーバーは最後のinputを保持し続けるので等価。
@@ -402,21 +481,21 @@ window.pick=async function(cls){
  const party=(document.getElementById('pparty').value||'').trim();
  window.myParty=party; // 招待リンク生成用
  try{localStorage.setItem('mnm_prof',JSON.stringify({name:pname,party,skin:mySkin}))}catch(e){}
- const client=new Colyseus.Client(ENDPOINT);
+ const client=new Colyseus.Client(ENDPOINT());
  const auth=await MNM.authQuery(); // Clerkトークン(ログイン時)+端末トークン
  room=await client.joinOrCreate('forest',{name:pname,cls,party,skin:mySkin},auth);
  wireRoom();
- document.getElementById('lobbyOv').style.display='flex';
+ setSty('lobbyOv','display','flex');
 };
 window.tryReconnect=async function(){
  try{
-  const client=new Colyseus.Client(ENDPOINT);
+  const client=new Colyseus.Client(ENDPOINT());
   room=await client.reconnect(sessionStorage.getItem('mnm_token'));
   wireRoom();
  }catch(e){
   try{sessionStorage.removeItem('mnm_token')}catch(e2){}
   MNM.refreshResume(); // 戻れなくなっていた場合はUIから選択肢を消す
-  announce('前の試合には戻れませんでした');
+  announce(T('resumeFail'));
  }
 };
 function moveVec(){let mx=0,my=0;
@@ -468,12 +547,12 @@ window.touchSkill=function(slot){
 function showResult(r){
  const rows=r.rows.filter(x=>x.dmg>0||x.team===myTeam).sort((a,b)=>b.rp-a.rp);
  document.getElementById('resultPanel').innerHTML=
-  `<h2 style="color:#e0b64f">${r.dragonKilled?'竜は倒れた':'マッチ終了'}</h2><p style="color:#8fa598">${r.reason}</p>
-  <table><tr><th>チーム</th><th>竜与ダメ</th><th>貢献率</th><th>RP</th></tr>
-  ${rows.map(x=>`<tr style="${x.team===myTeam?'color:#e0b64f':''}"><td style="color:${TEAMCOLS[x.team]}">●${TEAMNAMES[x.team]}</td><td>${x.dmg}</td><td>${Math.round(x.share*100)}%</td><td>+${x.rp}</td></tr>`).join('')}</table>
-  ${(r.players||[]).map(p=>`<p style="font-size:12px;color:#8fa598">${p.name} <span style="color:#5bc8b0">${p.rank||''}</span>: +${p.rp}RP → 累計<b style="color:#e0b64f">${p.totalRp}RP</b>(${p.matches}戦${p.wins}勝)</p>`).join('')}
-  <button onclick="saveResultImage()">📷 結果を画像で保存</button>
-  <button onclick="location.reload()">もう一度</button>`;
+  `<h2 style="color:#e0b64f">${r.dragonKilled?T('resWin'):T('resEnd')}</h2><p style="color:#8fa598">${r.reasonCode?T('reason_'+r.reasonCode):r.reason}</p>
+  <table><tr><th>${T('resTeam')}</th><th>${T('resDmg')}</th><th>${T('resShare')}</th><th>RP</th></tr>
+  ${rows.map(x=>`<tr style="${x.team===myTeam?'color:#e0b64f':''}"><td style="color:${TEAMCOLS[x.team]}">●${I18N.teamShort(x.team)}</td><td>${x.dmg}</td><td>${Math.round(x.share*100)}%</td><td>+${x.rp}</td></tr>`).join('')}</table>
+  ${(r.players||[]).map(p=>`<p style="font-size:12px;color:#8fa598">${T('resPlayer',{name:p.name,rank:`<span style="color:#5bc8b0">${I18N.rankName(p.rank)}</span>`,rp:p.rp,total:p.totalRp,m:p.matches,w:p.wins})}</p>`).join('')}
+  <button onclick="saveResultImage()">${T('resSave')}</button>
+  <button onclick="location.reload()">${T('resAgain')}</button>`;
  document.getElementById('resultOv').style.display='flex';
  window._lastResult=r;
  try{sessionStorage.removeItem('mnm_token')}catch(e){}
@@ -488,18 +567,18 @@ window.saveResultImage=function(){
  g.fillStyle='#e0b64f';g.font='bold 34px serif';g.textAlign='center';
  g.fillText('夢 幻 の 森',400,64);
  g.font='bold 22px sans-serif';
- g.fillText(r.dragonKilled?'— 竜は倒れた —':'— マッチ終了 —',400,104);
- g.font='14px sans-serif';g.fillStyle='#8fa598';g.fillText(r.reason,400,130);
+ g.fillText(r.dragonKilled?T('imgWin'):T('imgEnd'),400,104);
+ g.font='14px sans-serif';g.fillStyle='#8fa598';g.fillText(r.reasonCode?T('reason_'+r.reasonCode):r.reason,400,130);
  const rows=r.rows.filter(x=>x.dmg>0||x.team===myTeam).sort((a,b)=>b.rp-a.rp);
  g.textAlign='left';g.font='16px sans-serif';
  rows.forEach((x,i)=>{const y=175+i*30;
-  g.fillStyle=TEAMCOLS[x.team];g.fillText('● チーム'+TEAMNAMES[x.team],120,y);
-  g.fillStyle='#e8e2d2';g.fillText(`与ダメ ${x.dmg}`,300,y);g.fillText(`${Math.round(x.share*100)}%`,460,y);
+  g.fillStyle=TEAMCOLS[x.team];g.fillText('● '+I18N.teamName(x.team),120,y);
+  g.fillStyle='#e8e2d2';g.fillText(T('imgDmg',{d:x.dmg}),300,y);g.fillText(`${Math.round(x.share*100)}%`,460,y);
   g.fillStyle='#e0b64f';g.fillText(`+${x.rp} RP`,560,y)});
  let py=175+rows.length*30+24;
  (r.players||[]).forEach(p=>{
-  g.fillStyle='#5bc8b0';g.fillText(p.rank||'',120,py);
-  g.fillStyle='#e8e2d2';g.fillText(`${p.name} — 累計${p.totalRp}RP(${p.matches}戦${p.wins}勝)`,220,py);py+=26});
+  g.fillStyle='#5bc8b0';g.fillText(I18N.rankName(p.rank),120,py);
+  g.fillStyle='#e8e2d2';g.fillText(T('imgTotal',{name:p.name,total:p.totalRp,m:p.matches,w:p.wins}),220,py);py+=26});
  g.fillStyle='#3a5248';g.font='12px sans-serif';g.textAlign='center';
  g.fillText('mugen-no-mori prototype',400,460);
  const a=document.createElement('a');a.download='mugen_result.png';a.href=c.toDataURL('image/png');a.click();
@@ -536,14 +615,23 @@ function sfx(kind,vol){
 addEventListener('keydown',e=>{if(e.key.toLowerCase()==='m'){muted=!muted;if(amb)amb.gain.value=muted?0:.05}});
 
 // RESIZEモード: ウィンドウサイズ追従(非表示タブで開かれてinnerWidth=0でも後から復帰できる)
-const game=new Phaser.Game({type:Phaser.AUTO,scale:{mode:Phaser.Scale.RESIZE,width:innerWidth||1280,height:innerHeight||720},backgroundColor:'#101c17',pixelArt:true,scene:{create,update}});
-let gfx,gfxOver,cam,scene,staticDone=false;
+const game=new Phaser.Game({type:Phaser.AUTO,scale:{mode:Phaser.Scale.RESIZE,width:innerWidth||1280,height:innerHeight||720},
+ backgroundColor:'#101c17',pixelArt:true,banner:false,autoFocus:true,
+ fps:{target:60,forceSetTimeOut:false},          // rAF駆動(可変refresh rateにも追従)
+ render:{powerPreference:'high-performance',antialias:false,roundPixels:true,batchSize:4096,
+  clearBeforeRender:true,desynchronized:true},
+ scene:{create,update}});
+let gfx,gfxOver,gfxGround,cam,scene,staticDone=false;
+const statics=[];                    // 静的オブジェクト(木・茂み・商人): 画面外はvisible=falseで描画スキップ
+let VX=0,VY=0,VW=0,VH=0;             // カメラ可視域(ワールド座標)
+const onScr=(x,y,m)=>x>VX-m&&x<VX+VW+m&&y>VY-m&&y<VY+VH+m;
 const pool={}; // id -> Phaser Image
 function spr(id,key,x,y){
  let s=pool[id];
  if(!s){s=scene.add.image(x,y,key);pool[id]=s}
- else{if(s.texture.key!==key)s.setTexture(key);s.setVisible(true)}
- s.x=x;s.y=y;s.setDepth(y);
+ else{if(s.texture.key!==key)s.setTexture(key);if(!s.visible)s.setVisible(true)}
+ s.x=x;s.y=y;
+ if(s.depth!==y)s.setDepth(y); // depth変更は表示リストの再ソートを予約するので、変わった時だけ
  return s;
 }
 let ARTfns=null,pinTxts=[];
@@ -559,6 +647,7 @@ function create(){
  for(const k in A.textures)this.textures.addCanvas(k,A.textures[k]);
  for(let i=0;i<8;i++){const t=this.add.text(0,0,'',{fontSize:'11px',fontStyle:'bold',color:'#e8e2d2',
   backgroundColor:'#16241fdd',padding:{x:4,y:2}}).setDepth(100001).setVisible(false);pinTxts.push(t)}
+ gfxGround=this.add.graphics().setDepth(-100001); // 地面の円帯・商人の灯り(静的: placeStaticで1度だけ描く)
  gfx=this.add.graphics().setDepth(-100000);   // 地面・ゾーン・枯死(y深度ソートの最小値より必ず下)
  gfxOver=this.add.graphics().setDepth(100000); // バー・リング・弾・QTE
  cam=this.cameras.main;
@@ -567,6 +656,7 @@ function create(){
   if(k.startsWith('arrow'))e.preventDefault();
   if(k==='tab'){e.preventDefault();if(lastMe&&lastMe.dead)spectIdx++;return} // 観戦視点切替
   if(k==='a'||k==='s'||k==='d')wasdUsed=true;
+  if(k==='p'){perfToggle();return}   // P: FPS/PING表示のON/OFF
   if(!room||!pred||result)return;
   if(k==='f'){doF();return}
   if(k==='g'){doG();return}
@@ -589,8 +679,9 @@ function interpolated(){
  let a=snaps[0],b=snaps[snaps.length-1];
  for(let i=snaps.length-2;i>=0;i--){if(snaps[i].t<=rt){a=snaps[i];b=snaps[i+1];break}}
  const f=b.t>a.t?Math.min(1,Math.max(0,(rt-a.t)/(b.t-a.t))):1;
- const L=(A,B)=>B.map(u2=>{const u1=A.find(x=>x.id===u2.id)||u2;
-  return {...u2,x:u1.x+(u2.x-u1.x)*f,y:u1.y+(u2.y-u1.y)*f}});
+ const L=(A,B)=>{const M=new Map();for(let i=0;i<A.length;i++)M.set(A[i].id,A[i]);
+  return B.map(u2=>{const u1=M.get(u2.id)||u2;
+   return {...u2,x:u1.x+(u2.x-u1.x)*f,y:u1.y+(u2.y-u1.y)*f}})};
  return {...b,units:L(a.units,b.units),mobs:L(a.mobs,b.mobs)};
 }
 function fmt(t){return Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0')}
@@ -599,11 +690,23 @@ function announce(msg){const el=document.getElementById('announce');el.textConte
  clearTimeout(annT);annT=setTimeout(()=>el.style.opacity=0,3200)}
 
 function placeStatic(){
+ // 動かない地面(円帯・商人の灯り)は毎フレーム積み直さず、静的Graphicsに1度だけ流し込む
+ gfxGround.clear();
+ gfxGround.fillStyle(0x15251e,1).fillCircle(0,0,world.mapR);
+ gfxGround.fillStyle(0x182a21,1).fillCircle(0,0,world.mapR*.66);
+ gfxGround.fillStyle(0x1b2f25,1).fillCircle(0,0,world.mapR*.38);
+ gfxGround.fillStyle(0x232a1c,1).fillCircle(0,0,world.coreR);
+ for(const m of world.merchants)gfxGround.fillStyle(0xffd97a,.13).fillCircle(m.x,m.y,52);
  world.trees.forEach((t,i)=>{const img=scene.add.image(t.x,t.y-t.r*.15,'tree'+(i%3));
-  img.setScale(t.r*2.6/72);img.setDepth(t.y);if(i&1)img.setFlipX(true)});
+  img.setScale(t.r*2.6/72);img.setDepth(t.y);if(i&1)img.setFlipX(true);statics.push(img)});
  world.bushes.forEach((b,i)=>{const img=scene.add.image(b.x,b.y,'bush'+(i%2));
-  img.setScale(b.r*2.3/60,b.r*1.7/42);img.setDepth(b.y-1)});
- world.merchants.forEach(m=>scene.add.image(m.x,m.y-6,'merchant').setDepth(m.y));
+  img.setScale(b.r*2.3/60,b.r*1.7/42);img.setDepth(b.y-1);statics.push(img)});
+ world.merchants.forEach(m=>statics.push(scene.add.image(m.x,m.y-6,'merchant').setDepth(m.y)));
+}
+// 画面外の静的オブジェクトは描かない(木110+茂み40 = ドローコールの大半を占めるため)
+function cullStatics(){
+ for(let i=0;i<statics.length;i++){const g=statics[i],v=onScr(g.x,g.y,140);
+  if(g.visible!==v)g.setVisible(v)}
 }
 function dirOf(f){const c=Math.cos(f),si=Math.sin(f);
  if(Math.abs(c)>Math.abs(si))return{d:'side',fl:c<0};return{d:si>0?'down':'up',fl:false}}
@@ -614,7 +717,8 @@ function drawMinimap(s){
  g.beginPath();g.arc(75,75,world.mapR*sc,0,7);g.fillStyle='#15251e';g.fill();
  g.beginPath();g.arc(75,75,s.witherR*sc,0,7);g.strokeStyle='#7a5f9a';g.stroke();
  world.merchants.forEach(m=>{g.fillStyle='#ffd97a';g.fillRect(75+m.x*sc-1,75+m.y*sc-1,3,3)});
- (s.gimmicks||[]).forEach(gm=>{if(gm.unlocked)return;g.fillStyle='#5bc8b0';g.fillRect(75+gm.x*sc-1,75+gm.y*sc-1,3,3)});
+ (s.gimmicks||[]).forEach((un,i)=>{const gm=world.gimmicks[i];if(un||!gm)return;
+  g.fillStyle='#5bc8b0';g.fillRect(75+gm.x*sc-1,75+gm.y*sc-1,3,3)});
  if(s.dragon&&s.dragon.hp>0){g.fillStyle='#e0b64f';g.fillRect(72,72,6,6)}
  if(world.golden&&!s.golden.open){g.fillStyle=(Date.now()%800<400)?'#ffe9a8':'#c9a03a';
   g.fillRect(75+world.golden.x*sc-2,75+world.golden.y*sc-2,5,5)}
@@ -629,8 +733,14 @@ function drawMinimap(s){
   g.fillStyle=u.downed?'#ffffff':(TEAMCOLS[u.team]||'#e0b64f');
   const me=u.id===myId;g.fillRect(75+u.x*sc-2,75+u.y*sc-2,me?5:3,me?5:3)});
 }
-function update(_,dms){
+let lastMM=0;
+function update(now,dms){
  const dt=dms/1000;
+ perfTick(dms);
+ // 60fpsを割り続けたら自動で軽量化(装飾グロー・血痕・ミニマップ更新頻度を落とす)
+ if(PERF.fps<48){PERF.lowT+=dt;if(PERF.lowT>1.5)PERF.low=true}
+ else if(PERF.fps>57){PERF.lowT-=dt;if(PERF.lowT<=0){PERF.lowT=0;PERF.low=false}}
+ const LOW=PERF.low;
  gfx.clear();gfxOver.clear();
  if(!world)return;
  const s=interpolated();if(!s)return;
@@ -652,39 +762,45 @@ function update(_,dms){
   const pool=mates.length?mates:s.units.filter(u=>!u.dead);
   if(pool.length){const a=pool[spectIdx%pool.length];camT={x:a.x,y:a.y};spectName=a.name}
  }
- if(camT){cam.scrollX+=((camT.x-innerWidth/2)-cam.scrollX)*.15;cam.scrollY+=((camT.y-innerHeight/2)-cam.scrollY)*.15}
- // ground bands
- gfx.fillStyle(0x15251e,1).fillCircle(0,0,world.mapR);
- gfx.fillStyle(0x182a21,1).fillCircle(0,0,world.mapR*.66);
- gfx.fillStyle(0x1b2f25,1).fillCircle(0,0,world.mapR*.38);
- gfx.fillStyle(0x232a1c,1).fillCircle(0,0,world.coreR);
- // wither(枯死域)
+ if(camT){const k=1-Math.exp(-dt*11);  // 60fps時の0.15相当。低fpsでも追従の速さが変わらない
+  cam.scrollX+=((camT.x-innerWidth/2)-cam.scrollX)*k;cam.scrollY+=((camT.y-innerHeight/2)-cam.scrollY)*k}
+ VX=cam.scrollX;VY=cam.scrollY;VW=cam.width;VH=cam.height;
+ cullStatics();
+ // wither(枯死域): Phaserのarc()は角度範囲によらず約100頂点を吐き、それをfillPath=
+ // 毎フレームearcut(200頂点)していた。等分した三角形リングを直接積めばearcutは不要
  if(s.witherR<world.mapR){
-  gfx.lineStyle(3,0x7a5f9a,1).strokeCircle(0,0,s.witherR);
+  const r0=s.witherR,r1=world.mapR+300,N=48;
   gfx.fillStyle(0x3c2d4b,.4);
-  gfx.beginPath();gfx.arc(0,0,world.mapR+300,0,6.283,false);gfx.arc(0,0,s.witherR,0,6.283,true);gfx.fillPath();
+  for(let k=0;k<N;k++){
+   const a0=k/N*6.28319,a1=(k+1)/N*6.28319;
+   const c0=Math.cos(a0),n0=Math.sin(a0),c1=Math.cos(a1),n1=Math.sin(a1);
+   gfx.fillTriangle(c0*r0,n0*r0,c1*r0,n1*r0,c1*r1,n1*r1);
+   gfx.fillTriangle(c0*r0,n0*r0,c1*r1,n1*r1,c0*r1,n0*r1);
+  }
+  gfx.lineStyle(3,0x7a5f9a,1).strokeCircle(0,0,r0);
  }
  // 血の足跡(敵チームの負傷者の軌跡=間接情報。自分のは薄く表示して「漏れてる」ことを教える)
- for(const tr of s.trails){
+ if(!LOW)for(const tr of s.trails){
+  if(!onScr(tr.x,tr.y,8))continue;
   gfx.fillStyle(tr.own?0x8a4a42:0xc33d2e,(tr.own?.25:.65)*tr.f).fillCircle(tr.x,tr.y,3)}
- // 宝箱(テクスチャ・開閉スワップ)
- s.chests.forEach((c,i)=>{const id='chest'+i;seen.add(id);
-  const sp2=spr(id,c.open?'chestO':'chestC',c.x,c.y);sp2.setAlpha(c.open?.55:1)});
+ // 宝箱(スナップは開閉フラグ配列のみ・座標はinitで受信済み)
+ s.chests.forEach((open,i)=>{const c=world.chests[i];if(!c||!onScr(c.x,c.y,40))return;
+  const id='chest'+i;seen.add(id);
+  const sp2=spr(id,open?'chestO':'chestC',c.x,c.y);sp2.setAlpha(open?.55:1)});
  // 黄金の宝箱(全チーム既知の争奪ポイント)
- if(world.golden){const gc=world.golden;
+ if(world.golden&&onScr(world.golden.x,world.golden.y,70)){const gc=world.golden;
   if(!s.golden.open){seen.add('golden');
-   const glow=.22+.1*Math.sin(s.t*3);
-   gfx.fillStyle(0xffd97a,glow).fillCircle(gc.x,gc.y,46);
+   if(!LOW){const glow=.22+.1*Math.sin(s.t*3);
+    gfx.fillStyle(0xffd97a,glow).fillCircle(gc.x,gc.y,46)}
    const sp2=spr('golden','chestC',gc.x,gc.y);sp2.setScale(1.6);sp2.setTint(0xffe08a);
    if(s.golden.tLeft>0){gfxOver.lineStyle(2,0xe0b64f,.9).strokeCircle(gc.x,gc.y,30+s.golden.tLeft%2)}
   } else {seen.add('golden');const sp2=spr('golden','chestO',gc.x,gc.y);sp2.setScale(1.6);sp2.setTint(0xffe08a);sp2.setAlpha(.6)}}
- // 商人のランタン光
- for(const m of world.merchants){gfx.fillStyle(0xffd97a,.13).fillCircle(m.x,m.y,52)}
- // 封印装置(台座+回転ヘックス)
- for(const g of s.gimmicks){
+ // 封印装置(台座+回転ヘックス — スナップは解錠フラグ配列のみ・座標はinitで受信済み)
+ for(let gi=0;gi<s.gimmicks.length;gi++){
+  const g=world.gimmicks[gi];if(!g||!onScr(g.x,g.y,40))continue;
   gfx.fillStyle(0x2a3630,1).fillCircle(g.x,g.y,15);
   gfx.lineStyle(2,0x0c120e,1).strokeCircle(g.x,g.y,15);
-  if(!g.unlocked){const rot=s.t*.8;
+  if(!s.gimmicks[gi]){const rot=s.t*.8;
    gfxOver.lineStyle(2,0x5bc8b0,.85);gfxOver.beginPath();
    for(let k=0;k<=6;k++){const a=rot+k*Math.PI/3,px=g.x+Math.cos(a)*22,py=g.y+Math.sin(a)*22;
     k?gfxOver.lineTo(px,py):gfxOver.moveTo(px,py)}
@@ -693,20 +809,21 @@ function update(_,dms){
   else gfx.fillStyle(0x5bc8b0,.3).fillCircle(g.x,g.y,5)}
  // zones/walls/traps
  for(const z of s.zones){
+  if(!onScr(z.x,z.y,z.r+20))continue;
   if(z.kind==='nuke'){gfx.fillStyle(0xc33d2e,.3).fillCircle(z.x,z.y,z.r);gfx.lineStyle(2,0xc33d2e,1).strokeCircle(z.x,z.y,z.r)}
   if(z.kind==='slow')gfx.fillStyle(0x5bc8b0,.18).fillCircle(z.x,z.y,z.r);
   if(z.kind==='heal')gfx.fillStyle(0xe0b64f,.15).fillCircle(z.x,z.y,z.r);
   if(z.kind==='smoke')gfx.fillStyle(0x8fa598,.3).fillCircle(z.x,z.y,z.r);
  }
- for(const w of s.walls){gfxOver.fillStyle(0x78bed2,.55).fillCircle(w.x,w.y,w.r);gfxOver.lineStyle(2,0xbfeee2,1).strokeCircle(w.x,w.y,w.r)}
- for(const tr of s.traps){seen.add('trap'+tr.x+','+tr.y);
+ for(const w of s.walls){if(!onScr(w.x,w.y,w.r+20))continue;gfxOver.fillStyle(0x78bed2,.55).fillCircle(w.x,w.y,w.r);gfxOver.lineStyle(2,0xbfeee2,1).strokeCircle(w.x,w.y,w.r)}
+ for(const tr of s.traps){if(!onScr(tr.x,tr.y,tr.r+20))continue;seen.add('trap'+tr.x+','+tr.y);
   const sp2=spr('trap'+tr.x+','+tr.y,'trap',tr.x,tr.y);sp2.setAlpha(tr.own?1:.9);
   gfxOver.lineStyle(1,tr.own?0xe0b64f:0xc33d2e,.6).strokeCircle(tr.x,tr.y,tr.r)}
  // dragon / seal
  if(s.dragon){const D=s.dragon;
-  if(D.hp>0){seen.add('dragon');
-   const glow=.15+.07*Math.sin(s.t*3)+(D.phase||0)*.06;
-   gfx.fillStyle(0xe0b64f,glow).fillCircle(D.x,D.y,110);
+  if(D.hp>0&&onScr(D.x,D.y,150)){seen.add('dragon');
+   if(!LOW){const glow=.15+.07*Math.sin(s.t*3)+(D.phase||0)*.06;
+    gfx.fillStyle(0xe0b64f,glow).fillCircle(D.x,D.y,110)}
    const sp2=spr('dragon','dragon',D.x,D.y);
    sp2.setScale((140/132)*(1+Math.sin(s.t*2)*.02));
    if(D.phase>0)gfxOver.lineStyle(3,0xc33d2e,.25+D.phase*.15).strokeCircle(D.x,D.y,D.r+8);
@@ -717,14 +834,14 @@ function update(_,dms){
    k?gfxOver.lineTo(Math.cos(a)*70,Math.sin(a)*70):gfxOver.moveTo(Math.cos(a)*70,Math.sin(a)*70)}
   gfxOver.strokePath()}
  // 中ボス「森の主」(大型狼・緑ティント)
- if(s.boss&&s.boss.hp>0){seen.add('boss');
+ if(s.boss&&s.boss.hp>0&&onScr(s.boss.x,s.boss.y,80)){seen.add('boss');
   const B=s.boss;
   const sp2=spr('boss','wolf',B.x,B.y-6);sp2.setScale(2.3);sp2.setTint(0x9fd8a8);
   gfxOver.fillStyle(0x0a0f0d,1).fillRect(B.x-40,B.y-46,80,6);
   gfxOver.fillStyle(0xc33d2e,1).fillRect(B.x-40,B.y-46,80*B.hp/B.maxHp,6);
  }
  // 迷い人+祠
- if(s.npc&&!s.npc.done){seen.add('npc');
+ if(s.npc&&!s.npc.done&&onScr(s.npc.x,s.npc.y,60)){seen.add('npc');
   const N=s.npc;
   const sp2=spr('npc',unitTex('priest',7,'down',0),N.x,N.y-7);sp2.setAlpha(.95);
   if(N.team>=0)gfxOver.lineStyle(2,TEAMINT[N.team],.8).strokeCircle(N.x,N.y,20);
@@ -734,20 +851,23 @@ function update(_,dms){
  }
  // 音紋(視界外の物音 — 方向は分かるが正体不明)
  for(const sn of (s.sounds||[])){
+  if(!onScr(sn.x,sn.y,60))continue;
   gfxOver.lineStyle(2,0xd0d0d0,.25).strokeCircle(sn.x,sn.y,26+((s.t*40)%20));
  }
  // ピン(チーム内共有)
  pinTxts.forEach(t=>t.setVisible(false));
  (s.pins||[]).forEach((p,i)=>{
-  if(i>=pinTxts.length)return;
+  if(i>=pinTxts.length||!onScr(p.x,p.y,80))return;
   const col=[0xe0b64f,0xc33d2e,0x5bc8b0,0xb78ae0][p.k];
   gfxOver.lineStyle(3,col,Math.min(1,p.life/2));
   gfxOver.beginPath();gfxOver.moveTo(p.x,p.y-18);gfxOver.lineTo(p.x-8,p.y-32);gfxOver.lineTo(p.x+8,p.y-32);gfxOver.closePath();gfxOver.strokePath();
   const t=pinTxts[i];t.setVisible(true);t.setText(PIN_LABELS[p.k]+' — '+p.by);t.setPosition(p.x-t.width/2,p.y-52);
  });
  // mobs(狼スプライト・進行方向で反転)
- for(const m of s.mobs){seen.add(m.id);
-  if(m.tele)gfx.fillStyle(0xc33d2e,.4).fillCircle(m.tele.x,m.tele.y,m.tele.r);
+ for(const m of s.mobs){
+  if(m.tele&&onScr(m.tele.x,m.tele.y,m.tele.r))gfx.fillStyle(0xc33d2e,.4).fillCircle(m.tele.x,m.tele.y,m.tele.r);
+  if(!onScr(m.x,m.y,50))continue;
+  seen.add(m.id);
   const pv=prevPos[m.id];const sp2=spr(m.id,'wolf',m.x,m.y-3);
   if(pv&&Math.abs(m.x-pv.x)>.3)sp2.setFlipX(m.x<pv.x);
   prevPos[m.id]={x:m.x,y:m.y};
@@ -755,6 +875,7 @@ function update(_,dms){
  }
  // projectiles
  for(const p of s.projs){
+  if(!onScr(p.x,p.y,20))continue;
   if(p.cls==='ranger'){gfxOver.fillStyle(0xbfeee2,1).fillCircle(p.x,p.y,p.r)}
   else{gfxOver.fillStyle(0xb78ae0,.3).fillCircle(p.x,p.y,p.r+5);
    gfxOver.fillStyle(0xb78ae0,1).fillCircle(p.x,p.y,p.r);
@@ -762,6 +883,7 @@ function update(_,dms){
  // units(職スプライト・向き反転・移動ボブ)
  for(const u of s.units){
   if(u.dead)continue;
+  if(u.id!==myId&&!onScr(u.x,u.y,60))continue;   // 画面外の味方/敵はスプライトもバーも積まない
   seen.add(u.id);
   if(u.downed){ // ダウン: 倒れ姿+血だまり+出血タイマー
    const spd2=spr(u.id,unitTex(u.cls,u.team,'side',u.skin),u.x,u.y+4);
@@ -803,67 +925,68 @@ function update(_,dms){
   gfxOver.fillStyle(0xe0b64f,.9).fillRect(x0+(qte.zoneC-qte.zoneW/2)*w,y0-2,qte.zoneW*w,10);
   gfxOver.fillStyle(0xe8f7f1,1).fillRect(x0+qte.needle*w-1,y0-5,2,16);
  }
- fxList.forEach(f=>{f.life-=dt;gfxOver.lineStyle(3,0xefe7d5,Math.max(0,f.life/.16));
-  gfxOver.beginPath();gfxOver.arc(f.x,f.y,42,f.dir-1,f.dir+1);gfxOver.strokePath()});
+ fxList.forEach(f=>{f.life-=dt;
+  if(!onScr(f.x,f.y,60))return;
+  gfxOver.lineStyle(3,0xefe7d5,Math.max(0,f.life/.16));
+  gfxOver.beginPath();
+  for(let k=0;k<=12;k++){const a=f.dir-1+k/6,px=f.x+Math.cos(a)*42,py=f.y+Math.sin(a)*42;
+   k?gfxOver.lineTo(px,py):gfxOver.moveTo(px,py)}
+  gfxOver.strokePath()});
  fxList=fxList.filter(f=>f.life>0);
- drawMinimap(s);
- // HUD
- document.getElementById('timer').textContent=fmt(s.t);
- document.getElementById('phase').textContent=
-  lastMe&&lastMe.dead?`観戦: ${spectName||'—'}${TOUCH?'(👁で切替)':'(Tabで切替)'}`
-  :s.dragon?(s.dragon.hp>0?'竜との戦い':'決着'):s.t>=world.unsealAt-30?'封印がゆらぐ':'探索と成長';
- document.getElementById('contrib').innerHTML=(s.dragon&&s.shares.some(x=>x>0))?
-  s.shares.map((sh,t2)=>sh>0?`<span style="color:${TEAMCOLS[t2]}">●${TEAMNAMES[t2]} ${sh}%</span>`:'')
-   .filter(Boolean).join(' ')+'(竜与ダメ貢献)':'';
- document.getElementById('nightOv').style.opacity=s.night?1:0;
+ // ミニマップは毎フレーム要らない(サーバー更新は20Hz)。15Hz/軽量時8Hzに間引く
+ if(now-lastMM>(LOW?125:66)){lastMM=now;drawMinimap(s)}
+ // HUD(値が変わった時だけ書く: 毎フレームのinnerHTMLはレイアウト再計算を誘発する)
+ setTxt('timer',fmt(s.t));
+ setTxt('phase',
+  lastMe&&lastMe.dead?T('spect',{name:spectName||'—'})+(TOUCH?T('spectTouch'):T('spectKey'))
+  :s.dragon?(s.dragon.hp>0?T('phaseDragon'):T('phaseEnd')):s.t>=world.unsealAt-30?T('phaseUnseal'):T('phaseExplore'));
+ setHtml('contrib',(s.dragon&&s.shares.some(x=>x>0))?
+  s.shares.map((sh,t2)=>sh>0?`<span style="color:${TEAMCOLS[t2]}">●${I18N.teamShort(t2)} ${sh}%</span>`:'')
+   .filter(Boolean).join(' ')+T('contrib'):'');
+ setSty('nightOv','opacity',s.night?'1':'0');
  // ピン新着音
  const pinN=(s.pins||[]).length;
  if(pinN>prevPinN)sfx('coin',.5);
  prevPinN=pinN;
  // ビルド選択UI
  const bo=lastSelf&&lastSelf.buildOffer;
- const bov=document.getElementById('buildOv');
  if(bo&&!result){
-  bov.style.display='block';
-  document.getElementById('buildTitle').textContent=`Lv${bo.tier===1?3:6}ビルド選択(どちらか一つ)`;
-  [0,1].forEach(i=>{const btn=document.getElementById('build'+i);
-   btn.textContent=bo.options[i];
-   btn.onclick=()=>{room.send('build',{tier:bo.tier,choice:i});bov.style.display='none'};});
- } else bov.style.display='none';
+  setSty('buildOv','display','block');
+  setTxt('buildTitle',T('buildTitle',{lv:bo.tier===1?3:6}));
+  [0,1].forEach(i=>{const btn=el('build'+i);
+   setTxt('build'+i,I18N.buildName(myCls,bo.tier,i)||bo.options[i]);
+   btn.onclick=()=>{room.send('build',{tier:bo.tier,choice:i});setSty('buildOv','display','none')};});
+ } else setSty('buildOv','display','none');
  if(lastMe&&lastSelf){
   if(lastSelf.gold>prevGold)sfx('coin');
   if(lastSelf.lv>prevLv)sfx('level');
   prevGold=lastSelf.gold;prevLv=lastSelf.lv;
-  document.getElementById('hp').style.width=Math.max(0,lastMe.hp/lastMe.maxHp*100)+'%';
-  document.getElementById('mp').style.width=(lastSelf.mp||0)+'%';
-  document.getElementById('lv').textContent=lastSelf.lv;
-  document.getElementById('gold').textContent=lastSelf.gold;
-  document.getElementById('xpt').textContent=`XP ${lastSelf.xp}/${lastSelf.xpNeed}`;
-  document.getElementById('xp').style.width=Math.min(100,lastSelf.xp/lastSelf.xpNeed*100)+'%';
-  const cds=lastSelf.cd||[0,0,0,0];
-  document.getElementById('skills').innerHTML=mySkills.map((sk,i)=>
-   `<div class="sk" onpointerdown="touchSkill(${i+1})"><b>${['W/1','E/2','R/3','T/4'][i]}</b>${sk.jp}<span style="font-size:9px;color:#7ab0d0">${sk.mp}</span>`+
-   `${cds[i]>0?`<div class="cd">${cds[i].toFixed(1)}</div>`:''}</div>`).join('')+
-   `<div class="sk" onpointerdown="if(room&&!result)room.send('potion')"><b>5</b>薬×${lastSelf.potions}</div>`;
-  const hint=document.getElementById('hint');
-  if(lastMe.downed)hint.innerHTML=`<b style="color:#c33d2e">ダウン</b> 味方の救助を待て… 残り${lastMe.downT}s`;
-  else if(lastSelf.revP>0)hint.innerHTML=`<b style="color:#8fe0a8">蘇生中…</b> 動くと中断`;
-  else if(lastSelf.nearDowned)hint.innerHTML=`<b style="color:#8fe0a8">味方がダウン</b> <kbd>F</kbd>で蘇生(2.5秒・その場から動かない)`;
-  else if(qte)hint.innerHTML=`<b style="color:#5bc8b0">解除中</b> <kbd>F</kbd>で金ゾーンに針を止めろ(${qte.hits}/3) — 移動で中断`;
-  else if(lastSelf.nearGim)hint.innerHTML=`<b style="color:#5bc8b0">封印装置</b> <kbd>F</kbd>で解除開始(解除でチームの対竜与ダメ+12%)`;
-  else if(lastSelf.nearMerchant)hint.innerHTML=`<b style="color:#e0b64f">商人</b> <kbd>F</kbd>ポーション(80G) / <kbd>G</kbd>砥石+8%(${lastSelf.whetPrice}G) — 所持${lastSelf.gold}G`;
-  else hint.innerHTML='';
+  setSty('hp','width',Math.max(0,lastMe.hp/lastMe.maxHp*100).toFixed(1)+'%');
+  setSty('mp','width',(lastSelf.mp||0)+'%');
+  setTxt('lv',String(lastSelf.lv));
+  setTxt('gold',String(lastSelf.gold));
+  setTxt('xpt',`XP ${lastSelf.xp}/${lastSelf.xpNeed}`);
+  setSty('xp','width',Math.min(100,lastSelf.xp/lastSelf.xpNeed*100).toFixed(1)+'%');
+  updateSkillBar(lastSelf.cd||[0,0,0,0],lastSelf.potions);
+  let hintHtml='';
+  if(lastMe.downed)hintHtml=T('hintDown',{s:lastMe.downT});
+  else if(lastSelf.revP>0)hintHtml=T('hintReviving');
+  else if(lastSelf.nearDowned)hintHtml=T('hintRevive');
+  else if(qte)hintHtml=T('hintQte',{n:qte.hits});
+  else if(lastSelf.nearGim)hintHtml=T('hintGim');
+  else if(lastSelf.nearMerchant)hintHtml=T('hintShop',{w:lastSelf.whetPrice,g:lastSelf.gold});
+  setHtml('hint',hintHtml);
   // タッチ: 文脈アクションボタンの出し分け(F=蘇生/装置/購入・G=砥石)+死亡時は観戦UIへ
   if(TOUCH){
    const dead=lastMe.dead;
    const showF=!dead&&!lastMe.downed&&!!(qte||lastSelf.nearDowned||lastSelf.nearGim||lastSelf.nearMerchant);
-   document.getElementById('fBtn').style.display=showF?'flex':'none';
-   document.getElementById('gBtn').style.display=(!dead&&!lastMe.downed&&lastSelf.nearMerchant&&!qte)?'flex':'none';
-   document.getElementById('joy').style.display=dead?'none':'block';
-   document.getElementById('atkBtn').style.display=dead?'none':'flex';
-   document.getElementById('pinBar').style.display=dead?'none':'flex';
-   document.getElementById('spectBtn').style.display=dead?'flex':'none';
-   if(dead)document.getElementById('pinOpts').style.display='none';
+   setSty('fBtn','display',showF?'flex':'none');
+   setSty('gBtn','display',(!dead&&!lastMe.downed&&lastSelf.nearMerchant&&!qte)?'flex':'none');
+   setSty('joy','display',dead?'none':'block');
+   setSty('atkBtn','display',dead?'none':'flex');
+   setSty('pinBar','display',dead?'none':'flex');
+   setSty('spectBtn','display',dead?'flex':'none');
+   if(dead)setSty('pinOpts','display','none');
   }
  }
 }

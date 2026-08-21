@@ -4,7 +4,7 @@
 // 個人戦績は /api/me がトークンを検証して本人の分だけ返す(README設計思想: 個人統計は本人のみ閲覧)
 'use strict';
 const MNM = (() => {
-  const CLS_JP = { warrior: '⚔近接', mage: '✦魔法', thief: '◆盗賊', priest: '✚僧侶', ranger: '➹遠距離' };
+  const clsName = c => window.I18N ? I18N.clsName(c) : c;
   const SCREENS = ['home', 'auth', 'select', 'mystats', 'rank', 'howtoScr'];
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
@@ -22,6 +22,18 @@ const MNM = (() => {
     }
     return (state.guestId = g);
   }
+
+  /* ---------- 接続先(ゲームサーバー) ----------
+   * 既定はこのWorker自身(Durable Object)。/api/config の gameServer が入っていれば
+   * そちらのVMへ繋ぐ(ping短縮のための移設先)。#wss://... のハッシュで手動上書きも可能。 */
+  function gsBase() {
+    const hash = location.hash.slice(1);
+    if (/^wss?:\/\//.test(hash)) return hash.replace(/\/+$/, '');
+    const c = state.config && state.config.gameServer;
+    return c ? String(c).replace(/\/+$/, '') : '';
+  }
+  function gameWs() { return gsBase() || location.origin.replace(/^http/, 'ws'); }
+  function gameHttp() { const b = gsBase(); return b ? b.replace(/^ws/, 'http') : location.origin; }
 
   /* ---------- 画面遷移 ---------- */
   function go(name) {
@@ -113,15 +125,14 @@ const MNM = (() => {
   function clerkOrWarn() {
     if (state.clerk) return state.clerk;
     authMsg(state.config && state.config.authEnabled
-      ? 'ログイン機能に接続できませんでした。ゲストのまま遊べます'
-      : 'このサーバーではログインは未設定です。ゲストのまま遊べます', 'err');
+      ? T('authNoClerk') : T('authDisabled'), 'err');
     return null;
   }
 
   // Google: OAuthリダイレクト。戻ってきたら init() の handleRedirectCallback がセッションを確立する
   async function startGoogle() {
     const c = clerkOrWarn(); if (!c) return;
-    authMsg('Googleへ移動しています…', 'busy');
+    authMsg(T('authToGoogle'), 'busy');
     try {
       await c.client.signIn.authenticateWithRedirect({
         strategy: 'oauth_google', redirectUrl: location.origin + '/', redirectUrlComplete: location.origin + '/',
@@ -133,8 +144,8 @@ const MNM = (() => {
   async function sendCode() {
     const c = clerkOrWarn(); if (!c) return;
     const email = ($('authEmail').value || '').trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return authMsg('メールアドレスの形式を確認してください', 'err');
-    authMsg('確認コードを送信中…', 'busy');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return authMsg(T('authBadMail'), 'err');
+    authMsg(T('authSending'), 'busy');
     state.email = email; state.signIn = null; state.signUp = null;
     try {
       let si = await c.client.signIn.create({ identifier: email });
@@ -148,24 +159,24 @@ const MNM = (() => {
         state.signUp = await su.prepareEmailAddressVerification({ strategy: 'email_code' });
       } catch (e2) { return authMsg(errText(e2), 'err'); }
     }
-    $('authSentTo').textContent = email;
+    $('authCodeLead').textContent = T('authCodeLead', { email });
     authStep(3);
     setTimeout(() => { const el = $('authCode'); if (el) el.focus(); }, 50);
-    authMsg('コードを送りました', 'ok');
+    authMsg(T('authSent'), 'ok');
   }
 
   async function verifyCode() {
     const c = clerkOrWarn(); if (!c) return;
     const code = ($('authCode').value || '').replace(/\D/g, '');
-    if (code.length < 6) return authMsg('6桁のコードを入力してください', 'err');
-    authMsg('確認中…', 'busy');
+    if (code.length < 6) return authMsg(T('authNeed6'), 'err');
+    authMsg(T('authChecking'), 'busy');
     try {
       let res;
       if (state.signIn) res = await state.signIn.attemptFirstFactor({ strategy: 'email_code', code });
       else if (state.signUp) res = await state.signUp.attemptEmailAddressVerification({ code });
-      else return authMsg('もう一度メールアドレスから始めてください', 'err');
+      else return authMsg(T('authRestart'), 'err');
       const sid = res.createdSessionId;
-      if (!sid) return authMsg('確認できませんでした。コードをご確認ください', 'err');
+      if (!sid) return authMsg(T('authCodeNg'), 'err');
       await c.setActive({ session: sid });
       await afterSignIn();
     } catch (e) { authMsg(errText(e), 'err'); }
@@ -173,13 +184,13 @@ const MNM = (() => {
 
   function errText(e) {
     const m = e && (e.errors && e.errors[0] && (e.errors[0].longMessage || e.errors[0].message) || e.message);
-    return m ? String(m) : 'うまくいきませんでした。もう一度お試しください';
+    return m ? String(m) : T('authErr');
   }
 
   // ログイン直後: ゲストで貯めた戦績をアカウントへ引き継ぐ
   async function afterSignIn() {
     state.user = state.clerk && state.clerk.user || null;
-    authMsg('ログインしました', 'ok');
+    authMsg(T('authOk'), 'ok');
     try {
       const t = await getToken();
       if (t) {
@@ -188,7 +199,7 @@ const MNM = (() => {
           body: JSON.stringify({ guest: guestId(), name: displayName() }),
         });
         const d = await r.json();
-        if (d.linked) authMsg(`ゲストの戦績を引き継ぎました(${d.moved.matches}戦 / ${d.moved.rp}RP)`, 'ok');
+        if (d.linked) authMsg(T('authLinked', { m: d.moved.matches, rp: d.moved.rp }), 'ok');
       }
     } catch (e) { /* 引き継ぎ失敗でもログイン自体は成立している */ }
     renderHome();
@@ -199,7 +210,6 @@ const MNM = (() => {
   async function signOut() { if (state.clerk) await state.clerk.signOut(); state.user = null; renderHome(); go('home'); }
 
   /* ---------- 前の試合への復帰(続きから / 新規を選ばせる) ---------- */
-  const CLS_ONLY = { warrior: '近接', mage: '魔法', thief: '盗賊', priest: '僧侶', ranger: '遠距離' };
   function savedToken() { try { return sessionStorage.getItem('mnm_token'); } catch (e) { return null; } }
   function dropToken() { try { sessionStorage.removeItem('mnm_token'); } catch (e) { /* noop */ } }
 
@@ -209,7 +219,7 @@ const MNM = (() => {
     state.resume = null;
     if (tk) {
       try {
-        const r = await fetch('/api/resume?token=' + encodeURIComponent(tk));
+        const r = await fetch(gameHttp() + '/api/resume?token=' + encodeURIComponent(tk));
         const d = await r.json();
         if (d && d.resumable) state.resume = d; else dropToken();
       } catch (e) { /* 通信不能: 判定できないので出さない */ }
@@ -221,13 +231,13 @@ const MNM = (() => {
   function renderResume() {
     const r = state.resume;
     const html = r ? `
-      <div class="rt">⏱ 前の試合がまだ続いています</div>
-      <div class="rs">${esc(r.name || '')}${r.cls ? ' / ' + (CLS_ONLY[r.cls] || r.cls) : ''}
-        ${r.dead ? ' · 脱落(観戦)' : r.downed ? ' · ダウン中' : ' · 今はBotが代行中'}
-        · 残り ${Math.floor(r.left / 60)}:${String(r.left % 60).padStart(2, '0')}</div>
+      <div class="rt">${T('resumeTitle')}</div>
+      <div class="rs">${esc(r.name || '')}${r.cls ? ' / ' + clsName(r.cls) : ''}
+        · ${r.dead ? T('resumeDead') : r.downed ? T('resumeDown') : T('resumeBot')}
+        · ${T('resumeLeft')} ${Math.floor(r.left / 60)}:${String(r.left % 60).padStart(2, '0')}</div>
       <div class="rbtns">
-        <button class="mbtn primary" onclick="MNM.resumeMatch()">▶ 続きから</button>
-        <button class="mbtn" onclick="MNM.discardMatch()">🆕 新しく始める</button>
+        <button class="mbtn primary" onclick="MNM.resumeMatch()">${T('resumeGo')}</button>
+        <button class="mbtn" onclick="MNM.discardMatch()">${T('resumeNew')}</button>
       </div>` : '';
     for (const id of ['homeReconnect', 'reconnectRow']) {
       const el = $(id); if (!el) continue;
@@ -247,22 +257,22 @@ const MNM = (() => {
   /* ---------- ホーム ---------- */
   function renderHome() {
     const row = $('authRow'); if (!row) return;
-    if (!state.config) { row.innerHTML = '<span class="muted">読み込み中…</span>'; return; }
+    if (!state.config) { row.innerHTML = `<span class="muted">${T('loading')}</span>`; return; }
     if (state.user) {
       row.innerHTML = `<span class="who">👤 ${esc(displayName())}</span><span class="rk" id="homeRank"></span>
         <div style="margin-top:8px">
-          <button class="mbtn small" onclick="MNM.openProfile()">アカウント</button>
-          <button class="mbtn small" onclick="MNM.signOut()">ログアウト</button>
+          <button class="mbtn small" onclick="MNM.openProfile()">${T('homeAccount')}</button>
+          <button class="mbtn small" onclick="MNM.signOut()">${T('homeLogout')}</button>
         </div>`;
-      fetchMe().then(me => { const el = $('homeRank'); if (el && me && me.found) el.textContent = `${me.rank} · ${me.rp}RP`; });
+      fetchMe().then(me => { const el = $('homeRank'); if (el && me && me.found) el.textContent = `${I18N.rankName(me.rank)} · ${me.rp}RP`; });
     } else if (state.config.authEnabled && state.authBroken) {
-      row.innerHTML = '<span class="muted small">⚠ ログイン機能に接続できませんでした。この端末の記録として遊べます</span>';
+      row.innerHTML = `<span class="muted small">${T('homeAuthBroken')}</span>`;
     } else if (state.config.authEnabled) {
-      row.innerHTML = `<span class="muted small">ログインすると、スマホでもPCでも同じ戦績で遊べます</span>
-        <div style="margin-top:8px"><button class="mbtn small" onclick="MNM.signIn()">🔑 ログイン / 新規登録</button>
-        <span class="muted small" style="margin-left:8px">未ログインでも遊べます</span></div>`;
+      row.innerHTML = `<span class="muted small">${T('homeLoginLead')}</span>
+        <div style="margin-top:8px"><button class="mbtn small" onclick="MNM.signIn()">${T('homeLogin')}</button>
+        <span class="muted small" style="margin-left:8px">${T('homeGuestOk')}</span></div>`;
     } else {
-      row.innerHTML = '<span class="muted small">この端末の記録として戦績を保存します</span>';
+      row.innerHTML = `<span class="muted small">${T('homeDeviceOnly')}</span>`;
     }
     // ログイン名を出撃画面の初期値に(保存済みの名前があればそちらを優先)
     const nameEl = document.getElementById('pname');
@@ -283,58 +293,57 @@ const MNM = (() => {
   }
   async function renderMyStats() {
     const body = $('statsBody');
-    body.innerHTML = '<span class="muted">読み込み中…</span>';
+    body.innerHTML = `<span class="muted">${T('loading')}</span>`;
     const me = await fetchMe();
+    const loginNote = () => `<p class="muted small">${T('stLoginNote', { a: '<a href="#" onclick="MNM.signIn();return false" style="color:#5bc8b0">', b: '</a>' })}</p>`;
     if (!me || !me.found) {
-      body.innerHTML = `<p class="muted small">まだ戦績がありません。1試合遊ぶとここに記録されます。</p>
-        ${state.config && state.config.authEnabled && !state.user
-          ? '<p class="muted small">※ 今はこの端末だけの記録です。<a href="#" onclick="MNM.signIn();return false" style="color:#5bc8b0">ログイン</a>すると他の端末でも引き継げます。</p>' : ''}`;
+      body.innerHTML = `<p class="muted small">${T('stNone')}</p>
+        ${state.config && state.config.authEnabled && !state.user ? loginNote() : ''}`;
       return;
     }
     const wr = me.matches ? Math.round(me.wins / me.matches * 100) : 0;
     const cls = (me.byClass || []).map(c => {
       const w = c.matches ? Math.round(c.wins / c.matches * 100) : 0;
-      return `<div class="rowline"><span>${CLS_JP[c.cls] || esc(c.cls)}</span>
-        <span class="muted">${c.matches}戦 ${w}% · 平均貢献 ${Math.round((c.share || 0) * 100)}%</span></div>`;
+      return `<div class="rowline"><span>${clsName(c.cls)}</span>
+        <span class="muted">${T('stClsLine', { m: c.matches, w, s: Math.round((c.share || 0) * 100) })}</span></div>`;
     }).join('') || '<div class="muted small">—</div>';
     const recent = (me.recent || []).map(m => {
       const d = new Date(m.at);
       const dt = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-      return `<div class="rowline"><span>${dt} ${CLS_JP[m.cls] || ''}${m.night ? ' 🌙' : ''}</span>
-        <span><span class="${m.win ? 'win' : 'lose'}">${m.win ? '勝' : m.dragon ? '討伐' : '—'}</span>
-        <span class="muted"> 貢献${Math.round((m.share || 0) * 100)}%</span>
+      return `<div class="rowline"><span>${dt} ${clsName(m.cls)}${m.night ? ' 🌙' : ''}</span>
+        <span><span class="${m.win ? 'win' : 'lose'}">${m.win ? T('stWin') : m.dragon ? T('stDragon') : '—'}</span>
+        <span class="muted"> ${T('stShare', { s: Math.round((m.share || 0) * 100) })}</span>
         <b style="color:#e0b64f"> +${m.rp}</b></span></div>`;
     }).join('') || '<div class="muted small">—</div>';
     body.innerHTML = `
       <div class="rowline" style="border:none;padding:0 4px 8px">
-        <span class="who">${esc(me.name)} <span class="rk">${me.rank}</span></span>
-        <span class="muted small">${me.kind === 'clerk' ? '🔑 アカウント' : '📱 この端末'}</span></div>
+        <span class="who">${esc(me.name)} <span class="rk">${I18N.rankName(me.rank)}</span></span>
+        <span class="muted small">${me.kind === 'clerk' ? T('stAccount') : T('stDevice')}</span></div>
       <div class="statGrid">
-        <div class="statCell"><div class="v">${me.rp}</div><div class="k">累計RP</div></div>
-        <div class="statCell"><div class="v">${me.matches}</div><div class="k">試合数</div></div>
-        <div class="statCell"><div class="v">${wr}%</div><div class="k">勝率(${me.wins}勝)</div></div>
-        <div class="statCell"><div class="v">${me.placement}位</div><div class="k">順位</div></div>
+        <div class="statCell"><div class="v">${me.rp}</div><div class="k">${T('stRp')}</div></div>
+        <div class="statCell"><div class="v">${me.matches}</div><div class="k">${T('stMatches')}</div></div>
+        <div class="statCell"><div class="v">${wr}%</div><div class="k">${T('stWinrate', { w: me.wins })}</div></div>
+        <div class="statCell"><div class="v">${T('stPlaceV', { n: me.placement })}</div><div class="k">${T('stPlace')}</div></div>
       </div>
-      <h3 class="ptitle" style="font-size:13px;margin:14px 0 4px">職別(本人のみ表示)</h3>${cls}
-      <h3 class="ptitle" style="font-size:13px;margin:14px 0 4px">最近の試合</h3>${recent}
-      ${state.config && state.config.authEnabled && !state.user
-        ? '<p class="muted small" style="margin-top:12px">※ この端末だけの記録です。<a href="#" onclick="MNM.signIn();return false" style="color:#5bc8b0">ログイン</a>すると他の端末でも引き継げます。</p>' : ''}`;
+      <h3 class="ptitle" style="font-size:13px;margin:14px 0 4px">${T('stByClass')}</h3>${cls}
+      <h3 class="ptitle" style="font-size:13px;margin:14px 0 4px">${T('stRecent')}</h3>${recent}
+      ${state.config && state.config.authEnabled && !state.user ? loginNote() : ''}`;
   }
 
   /* ---------- ランキング ---------- */
   async function renderRank() {
     const body = $('rankBody');
-    body.innerHTML = '<span class="muted">読み込み中…</span>';
+    body.innerHTML = `<span class="muted">${T('loading')}</span>`;
     let rows = [];
     try { rows = await (await fetch('/leaderboard.json')).json(); } catch (e) { /* noop */ }
-    if (!rows.length) { body.innerHTML = '<p class="muted small">まだ記録がありません。</p>'; return; }
+    if (!rows.length) { body.innerHTML = `<p class="muted small">${T('rankNone')}</p>`; return; }
     body.innerHTML = rows.slice(0, 50).map(r =>
-      `<div class="rowline"><span>${r.place}. ${esc(r.name)} <span class="rk">${r.rank}</span></span>
-       <span><b style="color:#e0b64f">${r.rp}</b><span class="muted"> ${r.matches}戦${r.wins}勝</span></span></div>`).join('');
+      `<div class="rowline"><span>${r.place}. ${esc(r.name)} <span class="rk">${I18N.rankName(r.rank)}</span></span>
+       <span><b style="color:#e0b64f">${r.rp}</b><span class="muted"> ${T('rankLine', { m: r.matches, w: r.wins })}</span></span></div>`).join('');
   }
 
   addEventListener('DOMContentLoaded', initAuth);
-  return { go, hideAll, signIn, signOut, authQuery, guestId, renderHome, state,
+  return { go, hideAll, signIn, signOut, authQuery, guestId, renderHome, state, gameWs, gameHttp,
     refreshResume, resumeMatch, discardMatch, startFlow,
     startGoogle, showEmail, sendCode, verifyCode, authBack, openProfile, afterSignIn };
 })();

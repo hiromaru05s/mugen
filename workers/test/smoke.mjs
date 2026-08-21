@@ -89,6 +89,12 @@ const uniq = Math.random().toString(36).slice(2, 6); // 永続DBに依存しな�
   const hz = snaps.length - n0;
   ok(`live snapレート ${hz}/s (16-24許容)`, hz >= 16 && hz <= 24);
 
+  // 往復遅延計測(クライアントのFPS/PING表示用): 送った値をそのまま即エコーする
+  let pong = null; room.on('rtt', d => pong = d);
+  room.send('rtt', { ts: 12345.5 });
+  await sleep(200);
+  ok('rttは同じts値を即エコーする', !!pong && pong.ts === 12345.5);
+
   // 切断→Bot代行→再接続。まず「続きから/新規」の出し分け用に復帰可否を確認する
   const token = room.reconnectionToken;
   const beforeCut = await fetch(`${HTTP}/api/resume?token=${encodeURIComponent(token)}`).then(r => r.json());

@@ -1,0 +1,19 @@
+{
+  "name": "mugen-no-mori-gameserver",
+  "version": "1.0.0",
+  "description": "夢幻の森 — ゲームサーバー(Node版)。試合のWebSocketだけを担当し、静的配信と戦績はCloudflare Workers側に残す",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs",
+    "test": "node test/gameserver.test.mjs",
+    "test:integration": "node test/integration.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

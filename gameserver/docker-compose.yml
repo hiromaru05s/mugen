@@ -1,0 +1,33 @@
+# 夢幻の森 — VM上の構成: Caddy(自動HTTPS) → ゲームサーバー
+# 使い方は gameserver/README.md を参照。.env に設定を書いてから:
+#   docker compose up -d
+services:
+  game:
+    build:
+      context: ..                      # ゲーム本体を workers/src と共有しているためルートがコンテキスト
+      dockerfile: gameserver/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      WORKERS_ORIGIN: ${WORKERS_ORIGIN}
+      GAME_SERVER_SECRET: ${GAME_SERVER_SECRET}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+      ALLOW_ORIGIN: ${WORKERS_ORIGIN}
+    expose: ["8080"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      GS_DOMAIN: ${GS_DOMAIN}          # 例: gs.example.com(Let's Encrypt証明書の取得先)
+      WORKERS_ORIGIN: ${WORKERS_ORIGIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data                # 証明書。消すと毎回取り直しになるので永続化する
+      - caddy_config:/config
+    depends_on: [game]
+
+volumes:
+  caddy_data:
+  caddy_config:
