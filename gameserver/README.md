@@ -24,9 +24,12 @@ RP の精算は試合終了時に1回だけ Workers 側へ中継する(`/api/gs/
 
 ## 事前に必要なもの
 
-1. **VM** — 以下のいずれか
-   - Oracle Cloud Always Free の ARM インスタンス(ソウル `ap-seoul-1` / 東京 `ap-tokyo-1`)。永久無料
-   - その他 VPS(月数百円〜)。ソウルか東京リージョンであれば何でもよい
+1. **VM** — **Vultr のソウル(ICN)リージョン**を想定(月$5〜6 / 1GB で十分)。
+   このゲームは Node 1プロセスなので、数十ルームでもメモリは余る。
+   - 支払いは**プリペイド残高**にしておくと、入金額が実質の上限になる
+   - 他社でも構わない(AWS Lightsail `ap-northeast-2` など)。**ソウルか東京**であれば手順は同じ
+   - Oracle Cloud Always Free は月0円だが、**7日間アイドルだとインスタンスが回収される**。
+     週に数時間だけ遊ぶ用途は回収対象になりやすいので、常設には向かない
 2. **ドメイン名** — ブラウザは HTTPS のページから `ws://` に繋げない(mixed content)ため
    `wss://` が必須で、そのためには証明書＝ドメインが要る。
    独自ドメインが無ければ DuckDNS などの無料サブドメインでもよい。
@@ -54,6 +57,8 @@ cd workers && npx wrangler secret put GAME_SERVER_SECRET
 ### 2. VM 側をセットアップ
 
 ```bash
+# Vultr/Lightsail など通常のVPSはOSのファイアウォールが開いているのでそのまま進める。
+# Oracle Cloud の場合のみ、これに加えて Security List と iptables の両方を開ける必要がある。
 sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
 sudo usermod -aG docker $USER && newgrp docker
 git clone <このリポジトリ> mugen-no-mori && cd mugen-no-mori/gameserver
