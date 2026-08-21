@@ -16,6 +16,10 @@
     { "tag": "v1", "new_sqlite_classes": ["ForestRoom", "Registry"] }
   ],
   "observability": { "enabled": true }
+  // --- ログイン(Clerk)を有効にする ---
+  // Clerkでアプリを作り、Publishable key を貼るだけで有効になる(公開情報なのでコミット可)。
+  // シークレットキーは不要(セッションJWTは公開JWKSで検証している)。
+  // "vars": { "CLERK_PUBLISHABLE_KEY": "pk_test_xxxxxxxx" }
   // テスト用チートを有効にする場合: "vars": { "M2_DEV": "1" }
   // Supabaseミラーを使う場合: wrangler secret put SUPABASE_URL / SUPABASE_KEY
 }

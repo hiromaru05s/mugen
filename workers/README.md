@@ -8,15 +8,16 @@ m3サーバー(Colyseus/Node常駐プロセス)をCloudflareの**無料プラン
 | ファイル | 役割 |
 |---|---|
 | `src/room.mjs` | ForestRoom DO = **1試合1インスタンス**。冒頭の`Room`クラスがColyseusのRoom APIを模倣する薄いシムで、その下のゲームロジックはm3のほぼ写し |
-| `src/registry.mjs` | Registry DO(シングルトン)= マッチメイキングのポインタ管理 + **RP永続化(DOストレージ=SQLite)** + 戦績ページ(`/stats`, `/players.json`) |
-| `src/index.mjs` | Workerエントリ。`/join` `/reconnect`をルームDOへ、他は静的アセットへルーティング |
-| `public/` | クライアント(m3/clientのコピー + `net.js`=colyseus.js代替シム)。**Workerと同一オリジンで配信** |
+| `src/registry.mjs` | Registry DO(シングルトン)= マッチメイキング + **戦績永続化(DO SQLite: users/matches)** + リーダーボード |
+| `src/auth.mjs` | ClerkセッションJWTの検証(公開JWKSでRS256)。未設定ならゲスト(端末トークン)にフォールバック |
+| `src/index.mjs` | Workerエントリ。`/join` `/reconnect`をルームDOへ、`/api/*`は認証・個人戦績、他は静的アセット |
+| `public/` | クライアント。`net.js`=colyseus.js代替シム / `home.js`=ホーム画面・認証・戦績。**Workerと同一オリジンで配信** |
 | `config.json` | m3と同じバランスノブ(バンドルに同梱。変更したら再デプロイ) |
 
 m3からの構造変更点:
 - 通信: Colyseusプロトコル → 素のWebSocket + JSON `{t: type, d: data}`(`public/net.js`が旧APIを再現するのでクライアントコードはほぼ無変更)
 - RP永続化: `data/players.json` → Registry DOのストレージ(起動時読み戻しも解決)。`SUPABASE_URL`/`SUPABASE_KEY`設定時はミラー(任意)
-- 戦績ページ: port+1の別サーバー → 同一オリジンの `/stats`
+- 戦績: 名前キーの`{rp,matches,wins}` → **ユーザーID基準のSQLite**(試合履歴・職別統計つき)。ページはport+1の別サーバー → 同一オリジンの`/stats`
 - 再接続: Colyseusのreconnectionトークン → `<ルーム名>.<sessionId>.<secret>` 形式の自前トークン(挙動は同じ: 切断→Bot代行→120秒以内復帰)
 
 ## ローカル開発
@@ -25,7 +26,7 @@ m3からの構造変更点:
 cd workers
 npm install
 npm run dev        # http://localhost:8787 (テスト用チート: npx wrangler dev --var M2_DEV:1)
-npm test           # スモークテスト21項目(wrangler devを自動起動して検証・GitHub Actions CIも同じ)
+npm test           # 認証15項目 + スモーク25項目(wrangler devを自動起動して検証・GitHub Actions CIも同じ)
 ```
 
 ## デプロイ(初回)
@@ -64,6 +65,35 @@ npm run deploy       # https://mugen-no-mori.<アカウント名>.workers.dev �
 - **📍ボタン**で定型ピン(集合/危険/装置/竜)を自分の現在地に送信(デスクトップはZ/X/C/Vのまま)
 - **死亡後は観戦モード**: 👁ボタン(デスクトップはTab)で生存者を巡回、観戦対象名をHUD表示
 - iOSの音はじめ初回タップでAudioContextを解錠。キーボード/マウス操作はデスクトップでそのまま
+
+## ログイン(Clerk) — 任意
+
+`CLERK_PUBLISHABLE_KEY` を設定すると**ログインが有効**になり、未設定なら従来どおりゲスト(端末トークン)だけで動く。
+シークレットキーは**不要** — Clerkのセッションは公開JWKSでRS256検証しているため、サーバーが持つのは公開情報だけ。
+
+1. [clerk.com](https://clerk.com) でアプリを作成(無料枠あり)
+2. **API Keys** の *Publishable key*(`pk_test_...`)をコピー
+3. `wrangler.jsonc` の `vars` に貼る → `npm run deploy`
+
+```jsonc
+"vars": { "CLERK_PUBLISHABLE_KEY": "pk_test_xxxxxxxx" }
+```
+
+- ログイン済み → 戦績は Clerk アカウント(`clerk:<sub>`)に紐づき、**別の端末でも引き継がれる**
+- 未ログイン → 端末トークン(`guest:<uuid>`)に紐づく。同じブラウザなら累積される
+- どちらでも**ログイン前に遊べる**(README設計思想「身内3人で成立する」を壊さないため)
+- Clerkに接続できない時はゲストへ自動フォールバック(遊べなくならない)
+
+## 戦績
+
+| 画面 | 中身 |
+|---|---|
+| ホーム → 自分の戦績 | 累計RP・試合数・勝率・順位 / **職別成績** / 直近20試合。`/api/me` がトークンを検証し**本人の分だけ**返す |
+| ホーム → ランキング | 上位50の公開リーダーボード(名前・ランク・RP・戦績のみ) |
+| `/stats` | 同じものを単体ページとして。JSONは `/leaderboard.json` |
+
+設計思想(README「役割別の個人統計は本人のみ閲覧」)に沿って、**個人の与ダメージは記録していない**。
+`matches` に残すのは「自分がどの職で出たか」とチーム単位のRP・貢献率まで。
 
 ## その他のQoL
 

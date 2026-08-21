@@ -36,8 +36,9 @@
   window.Colyseus = {
     Client: class {
       constructor(endpoint) { this.endpoint = String(endpoint || '').replace(/\/+$/, ''); }
-      joinOrCreate(roomName, opts) {
-        return connect(`${this.endpoint}/join?opts=${encodeURIComponent(JSON.stringify(opts || {}))}`);
+      joinOrCreate(roomName, opts, extraQuery) {
+        const q = `opts=${encodeURIComponent(JSON.stringify(opts || {}))}` + (extraQuery ? '&' + extraQuery : '');
+        return connect(`${this.endpoint}/join?${q}`);
       }
       reconnect(token) {
         return connect(`${this.endpoint}/reconnect?token=${encodeURIComponent(token || '')}`);

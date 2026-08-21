@@ -111,6 +111,9 @@ class Room extends DurableObject {
     if (this.locked || this.phase !== 'lobby' || this.clients.length >= this.maxClients)
       return new Response('room locked', { status: 409 }); // Worker側が次ルームへ回す
     let opts = {}; try { opts = JSON.parse(url.searchParams.get('opts') || '{}'); } catch { /* noop */ }
+    // Worker側で検証済みの本人情報(Clerk sub / 端末トークン)。DOはここを信頼する
+    opts.uid = url.searchParams.get('uid') || '';
+    opts.kind = url.searchParams.get('kind') || 'guest';
     const pair = new WebSocketPair();
     const [browserEnd, serverEnd] = Object.values(pair);
     serverEnd.accept();
@@ -371,8 +374,10 @@ export class ForestRoom extends Room {
     const u = this.mkUnit(client.sessionId, -1, cls, name, false); // チームはマッチ開始時に確定
     u.party = party || ('solo_' + client.sessionId);
     u.skin = skin;
+    u.uid = String((options || {}).uid || '');       // 戦績の帰属先(空=記録しない)
+    u.kind = String((options || {}).kind || 'guest'); // clerk | guest
     u.totalRp = 0; // Registry DOから非同期に取得(ロビーのランク表示用)
-    this._registryFetch('GET', `/rp?name=${encodeURIComponent(name)}`)
+    if (u.uid) this._registryFetch('GET', `/rp?uid=${encodeURIComponent(u.uid)}`)
       .then(r => r.json()).then(r => { if (r && typeof r.rp === 'number') u.totalRp = r.rp; })
       .catch(() => { /* Registry未達でも試合は続行 */ });
     this.units.set(client.sessionId, u);
@@ -1016,9 +1021,11 @@ export class ForestRoom extends Room {
     const rows = [...Array(CFG.teams).keys()].map(team => ({ team, dmg: Math.round(this.dragonDmg[team]), share: +(this.dragonDmg[team] / total).toFixed(3), rp: Math.round(this.dragonDmg[team] / total * 1000) }));
     const winTeam = dragonKilled ? rows.slice().sort((a, b) => b.rp - a.rp)[0].team : -1;
     // RP永続化はRegistry DO(SQLiteストレージ)に委譲。累計・戦績はレスポンスで受け取る
-    const humans = [...this.units.values()].filter(u => !u.bot)
-      .map(u => ({ name: u.name, team: u.team, rp: rows[u.team].rp, win: u.team === winTeam }));
-    this._registryFetch('POST', '/record', humans).then(r => r.json())
+    const humans = [...this.units.values()].filter(u => !u.bot && u.uid)
+      .map(u => ({ userId: u.uid, kind: u.kind, name: u.name, cls: u.cls, team: u.team,
+        rp: rows[u.team].rp, share: rows[u.team].share, win: u.team === winTeam }));
+    this._registryFetch('POST', '/record',
+      { players: humans, meta: { dragonKilled, night: this.night, reason } }).then(r => r.json())
       .catch(() => humans.map(h => ({ name: h.name, team: h.team, rp: h.rp, totalRp: h.rp, matches: 1, wins: h.win ? 1 : 0, rank: rankOf(h.rp) }))) // Registry未達でも当試合分は返す
       .then(players => {
         this.result = { dragonKilled, reason, rows, players };

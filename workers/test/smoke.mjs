@@ -46,7 +46,9 @@ function connect(url) {
     ws.onclose = ev => { if (!joined) reject(new Error('closed ' + ev.code)); };
   });
 }
-const join = (opts) => connect(`${EP}/join?opts=${encodeURIComponent(JSON.stringify(opts))}`);
+// guest= は端末トークン(本人識別)。戦績はこのIDに紐づいて記録される
+const join = (opts, guest) => connect(
+  `${EP}/join?opts=${encodeURIComponent(JSON.stringify(opts))}&guest=${encodeURIComponent(guest || 'smoketestdevice01')}`);
 const results = [];
 const ok = (name, cond) => { results.push([cond ? 'PASS' : 'FAIL', name]); console.log(cond ? 'PASS' : 'FAIL', name); if (!cond) process.exitCode = 1; };
 const uniq = Math.random().toString(36).slice(2, 6); // 永続DBに依存しないユニーク名
@@ -111,8 +113,8 @@ const uniq = Math.random().toString(36).slice(2, 6); // 永続DBに依存しな�
 }
 
 /* ---------- 2) 竜討伐→RP精算→永続化(DEVチート使用) ---------- */
-async function playToDragonKill(name) {
-  const room = await join({ name, cls: 'warrior' });
+async function playToDragonKill(name, guest) {
+  const room = await join({ name, cls: 'warrior' }, guest);
   let result = null, fxs = [];
   room.on('result', d => result = d); room.on('fx', d => fxs.push(d));
   room.send('ready'); room.send('start');
@@ -128,16 +130,26 @@ async function playToDragonKill(name) {
 }
 {
   const name = 'リョウ' + uniq;
-  const g1 = await playToDragonKill(name);
+  const guest = 'devtoken' + uniq + String(Date.now()); // 端末トークン(8文字以上の英数)
+  const g1 = await playToDragonKill(name, guest);
   ok('竜出現(unseal fx)', g1.fxs.some(f => f.kind === 'unseal'));
   ok('result受信(竜討伐)', !!g1.result && g1.result.dragonKilled === true);
   const me = g1.result && g1.result.players.find(p => p.name === name);
   ok('RP精算+累計/ランクが返る', me && me.rp > 0 && me.totalRp === me.rp && me.matches === 1 && !!me.rank);
-  const pj = await fetch(HTTP + '/players.json').then(r => r.json());
-  ok('Registryに永続化(players.json)', pj[name] && pj[name].rp === me.totalRp);
+  const pj = await fetch(HTTP + '/leaderboard.json').then(r => r.json());
+  const row = pj.find(r => r.name === name);
+  ok('Registryに永続化(leaderboard.json)', !!row && row.rp === me.totalRp);
+  const mine = await fetch(`${HTTP}/api/me?guest=${guest}`).then(r => r.json());
+  ok('/api/me が本人の戦績を返す', mine.found && mine.rp === me.totalRp && mine.matches === 1);
+  ok('/api/me に職別統計と試合履歴が入る',
+    mine.byClass.some(c => c.cls === 'warrior') && mine.recent.length === 1 && mine.recent[0].rp === me.rp);
+  const other = await fetch(`${HTTP}/api/me?guest=someoneelsedevice999`).then(r => r.json());
+  ok('他人の端末トークンでは本人戦績が見えない', other.found === false);
+  const noauth = await fetch(HTTP + '/api/me');
+  ok('本人確認なしの/api/meは401', noauth.status === 401);
   const stats = await fetch(HTTP + '/stats').then(r => r.text());
   ok('/statsリーダーボードに反映', stats.includes('リーダーボード') && stats.includes(name));
-  const g2 = await playToDragonKill(name);
+  const g2 = await playToDragonKill(name, guest);
   const me2 = g2.result && g2.result.players.find(p => p.name === name);
   ok('2戦目: 累計RP加算・matches=2', me2 && me2.totalRp === me.totalRp + me2.rp && me2.matches === 2);
 }
