@@ -99,6 +99,8 @@ class Room extends DurableObject {
   }
   async fetch(request) {
     const url = new URL(request.url);
+    // 復帰可否の問い合わせ(WebSocketを張らずに「まだ前の試合に戻れるか」を返す)
+    if (url.pathname === '/resume-status') return this._resumeStatus(url);
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('websocket expected', { status: 426 });
     if (url.pathname === '/reconnect') return this._handleReconnect(url);
     // 新規join
@@ -125,6 +127,22 @@ class Room extends DurableObject {
     try { this.onJoin(client, opts); } catch (e) { console.error('[room] onJoin', e); }
     client.send('joined', { sessionId, reconnectionToken: `${this.roomName}.${sessionId}.${secret}` });
     return new Response(null, { status: 101, webSocket: browserEnd });
+  }
+  _resumeStatus(url) {
+    const token = url.searchParams.get('token') || '';
+    const [, sessionId, secret] = token.split('.');
+    const wait = sessionId ? this._reconnectWaits.get(sessionId) : null;
+    // 再接続の受付が生きていて、かつトークンが一致する時だけ「戻れる」
+    if (!wait || !secret || this._tokens.get(sessionId) !== secret) return Response.json({ resumable: false });
+    const u = this.units.get(sessionId);
+    return Response.json({
+      resumable: true,
+      name: u ? String(u.name).replace('(切断)', '') : '',
+      cls: u ? u.cls : '', team: u ? u.team : -1,
+      dead: u ? !!u.dead : false, downed: u ? !!u.downed : false,
+      phase: this.phase,
+      left: Math.max(0, Math.round(CFG.matchLen - this.t)), // 試合の残り秒
+    });
   }
   _handleReconnect(url) {
     const token = url.searchParams.get('token') || '';

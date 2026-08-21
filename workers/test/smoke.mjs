@@ -89,10 +89,18 @@ const uniq = Math.random().toString(36).slice(2, 6); // 永続DBに依存しな�
   const hz = snaps.length - n0;
   ok(`live snapレート ${hz}/s (16-24許容)`, hz >= 16 && hz <= 24);
 
-  // 切断→Bot代行→再接続
+  // 切断→Bot代行→再接続。まず「続きから/新規」の出し分け用に復帰可否を確認する
   const token = room.reconnectionToken;
+  const beforeCut = await fetch(`${HTTP}/api/resume?token=${encodeURIComponent(token)}`).then(r => r.json());
+  ok('接続中は復帰対象にならない', beforeCut.resumable === false);
   room.ws.close();
   await sleep(500);
+  const st = await fetch(`${HTTP}/api/resume?token=${encodeURIComponent(token)}`).then(r => r.json());
+  ok('切断後は「続きから」が選べる', st.resumable === true && st.phase === 'live');
+  ok('復帰情報に名前・職・残り時間が入る',
+    st.name === 'スモ' + uniq && !st.name.includes('切断') && st.cls === 'ranger' && st.left > 0 && st.left <= 480);
+  const bogus = await fetch(`${HTTP}/api/resume?token=forest-1.deadbeef.deadbeef`).then(r => r.json());
+  ok('他人/無効なトークンでは復帰できない', bogus.resumable === false);
   const room2 = await connect(`${EP}/reconnect?token=${encodeURIComponent(token)}`);
   let snap2 = null; room2.on('snap', d => snap2 = d);
   room2.send('ready');
@@ -100,6 +108,8 @@ const uniq = Math.random().toString(36).slice(2, 6); // 永続DBに依存しな�
   ok('再接続でsessionId維持+snap再開', room2.sessionId === room.sessionId && !!snap2 && snap2.phase === 'live');
   const meR = snap2.units.find(u => u.id === room2.sessionId);
   ok('再接続で(切断)ラベル解除', meR && !meR.name.includes('切断'));
+  const after = await fetch(`${HTTP}/api/resume?token=${encodeURIComponent(token)}`).then(r => r.json());
+  ok('復帰後はもう「続きから」が出ない', after.resumable === false);
 
   // ロック後のjoinは新ルームへ(joinFlowのローテーション)
   const roomB = await join({ name: 'ふたりめ', cls: 'mage' });

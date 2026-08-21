@@ -58,6 +58,7 @@ const MNM = (() => {
       catch (e) { state.authBroken = true; console.warn('[auth] Clerk読み込み失敗 — ゲストで続行', e); }
     }
     renderHome();
+    refreshResume();
   }
 
   function loadClerk(pk) {
@@ -92,6 +93,52 @@ const MNM = (() => {
   async function signIn() { if (state.clerk) state.clerk.openSignIn({ afterSignInUrl: location.pathname }); }
   async function signOut() { if (state.clerk) await state.clerk.signOut(); state.user = null; renderHome(); }
 
+  /* ---------- 前の試合への復帰(続きから / 新規を選ばせる) ---------- */
+  const CLS_ONLY = { warrior: '近接', mage: '魔法', thief: '盗賊', priest: '僧侶', ranger: '遠距離' };
+  function savedToken() { try { return sessionStorage.getItem('mnm_token'); } catch (e) { return null; } }
+  function dropToken() { try { sessionStorage.removeItem('mnm_token'); } catch (e) { /* noop */ } }
+
+  // サーバーに「まだ戻れるか」を聞く(試合が終わっていたら選択肢自体を出さない)
+  async function refreshResume() {
+    const tk = savedToken();
+    state.resume = null;
+    if (tk) {
+      try {
+        const r = await fetch('/api/resume?token=' + encodeURIComponent(tk));
+        const d = await r.json();
+        if (d && d.resumable) state.resume = d; else dropToken();
+      } catch (e) { /* 通信不能: 判定できないので出さない */ }
+    }
+    renderResume();
+    return state.resume;
+  }
+
+  function renderResume() {
+    const r = state.resume;
+    const html = r ? `
+      <div class="rt">⏱ 前の試合がまだ続いています</div>
+      <div class="rs">${esc(r.name || '')}${r.cls ? ' / ' + (CLS_ONLY[r.cls] || r.cls) : ''}
+        ${r.dead ? ' · 脱落(観戦)' : r.downed ? ' · ダウン中' : ' · 今はBotが代行中'}
+        · 残り ${Math.floor(r.left / 60)}:${String(r.left % 60).padStart(2, '0')}</div>
+      <div class="rbtns">
+        <button class="mbtn primary" onclick="MNM.resumeMatch()">▶ 続きから</button>
+        <button class="mbtn" onclick="MNM.discardMatch()">🆕 新しく始める</button>
+      </div>` : '';
+    for (const id of ['homeReconnect', 'reconnectRow']) {
+      const el = $(id); if (!el) continue;
+      el.innerHTML = html;
+      el.style.display = r ? 'block' : 'none';
+    }
+  }
+
+  function resumeMatch() { if (typeof window.tryReconnect === 'function') window.tryReconnect(); }
+  function discardMatch() { dropToken(); state.resume = null; renderResume(); go('play'); }
+  // 「はじめる」: 戻れる試合があるなら、まず選ばせる
+  async function startFlow() {
+    go('play');
+    await refreshResume();
+  }
+
   /* ---------- ホーム ---------- */
   function renderHome() {
     const row = $('authRow'); if (!row) return;
@@ -112,8 +159,7 @@ const MNM = (() => {
     // ログイン名を出撃画面の初期値に(保存済みの名前があればそちらを優先)
     const nameEl = document.getElementById('pname');
     if (nameEl && !nameEl.value && state.user) nameEl.value = String(displayName()).slice(0, 12);
-    // 再接続ボタン(前の試合が残っている時だけ)
-    try { $('homeReconnect').style.display = sessionStorage.getItem('mnm_token') ? 'block' : 'none'; } catch (e) { /* noop */ }
+    renderResume();
   }
 
   /* ---------- 自分の戦績(本人のみ) ---------- */
@@ -180,6 +226,7 @@ const MNM = (() => {
   }
 
   addEventListener('DOMContentLoaded', initAuth);
-  return { go, hideAll, signIn, signOut, authQuery, guestId, renderHome, state };
+  return { go, hideAll, signIn, signOut, authQuery, guestId, renderHome, state,
+    refreshResume, resumeMatch, discardMatch, startFlow };
 })();
 window.MNM = MNM;

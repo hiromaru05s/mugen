@@ -29,6 +29,15 @@ export default {
       return json({ ...body, kind: user.kind });
     }
 
+    // 前の試合にまだ戻れるか(クライアントが「続きから/新規」を出し分けるために使う)
+    if (url.pathname === '/api/resume') {
+      const token = url.searchParams.get('token') || '';
+      const roomName = token.split('.')[0];
+      if (!roomName || !/^[a-zA-Z0-9_-]{1,40}$/.test(roomName)) return json({ resumable: false });
+      const stub = env.FOREST_ROOM.get(env.FOREST_ROOM.idFromName(roomName));
+      return stub.fetch(`https://room/resume-status?token=${encodeURIComponent(token)}`);
+    }
+
     if (url.pathname === '/join') return joinFlow(request, env, url);
 
     if (url.pathname === '/reconnect') {

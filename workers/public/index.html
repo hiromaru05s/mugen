@@ -56,6 +56,11 @@
  .statCell .k{font-size:10px;color:#8fa598;margin-top:2px}
  .rowline{display:flex;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #22322c;font-size:12px}
  .rowline:last-child{border-bottom:none}
+ .resumeBox{background:#1a2b22;border:1px solid #e0b64f;border-radius:10px;padding:12px;margin-bottom:14px;text-align:left}
+ .resumeBox .rt{color:#e0b64f;font-size:13px;font-weight:700;margin-bottom:2px}
+ .resumeBox .rs{color:#8fa598;font-size:11px;margin-bottom:10px}
+ .resumeBox .rbtns{display:flex;gap:8px}
+ .resumeBox .rbtns button{flex:1;margin:0}
  .win{color:#8fe0a8}.lose{color:#8fa598}
  .panel{background:#16241f;border:1px solid #e0b64f;border-radius:12px;padding:24px;text-align:center;min-width:340px}
  .panel button{background:#1d3129;border:1px solid #3a5248;color:#e8e2d2;border-radius:8px;padding:10px 14px;
@@ -104,14 +109,12 @@
   <div class="tagline">3人1組で森の深部へ。竜を討つのは、どのチームか。</div>
   <div id="authRow" class="authRow"><span class="muted">読み込み中…</span></div>
   <div class="menu">
-   <button class="mbtn primary" onclick="MNM.go('play')">▶ はじめる</button>
+   <button class="mbtn primary" onclick="MNM.startFlow()">▶ はじめる</button>
    <button class="mbtn" onclick="MNM.go('mystats')">📊 自分の戦績</button>
    <button class="mbtn" onclick="MNM.go('rank')">🏆 ランキング</button>
    <button class="mbtn" onclick="MNM.go('howto')">📖 遊び方</button>
   </div>
-  <div id="homeReconnect" style="display:none">
-   <button class="mbtn warn" onclick="tryReconnect()">↩ 前の試合に再接続</button>
-  </div>
+  <div id="homeReconnect" class="resumeBox" style="display:none"></div>
  </div>
 </div>
 
@@ -131,9 +134,8 @@
   <button onclick="pick('thief')">◆ 盗賊</button><button onclick="pick('priest')">✚ 僧侶</button>
   <button onclick="pick('ranger')">➹ 遠距離</button>
  </div>
- <div id="reconnectRow" style="display:none;margin-top:10px">
-  <button onclick="tryReconnect()" style="border-color:#e0b64f">前の試合に再接続</button>
- </div></div></div>
+ <div id="reconnectRow" class="resumeBox" style="display:none"></div>
+ </div></div>
 
 <!-- ===== 自分の戦績(本人のみ) ===== -->
 <div id="mystats" class="screen" style="display:none"><div class="panel wide">
@@ -240,7 +242,6 @@ addEventListener('DOMContentLoaded',()=>{
  document.getElementById('skins2').innerHTML=SKIN_DOTS.map((c,i)=>
   `<span onclick="setSkin(${i})" id="sk${i}" style="display:inline-block;width:16px;height:16px;border-radius:50%;
    background:${c};margin:0 3px;cursor:pointer;border:2px solid ${i===0?'#e0b64f':'#3a5248'}"></span>`).join('');
- if(sessionStorage.getItem('mnm_token'))document.getElementById('reconnectRow').style.display='block';
  document.getElementById('howto').innerHTML=
   'WASD/矢印移動・クリックorSpace攻撃・1-4(E/R/T)スキル・<kbd>5</kbd>薬・<kbd>F</kbd>装置/蘇生/購入・<kbd>G</kbd>砥石';
  // 前回の名前・合言葉・スキンを復元(招待リンクの?p=が最優先)
@@ -370,8 +371,9 @@ window.tryReconnect=async function(){
   room=await client.reconnect(sessionStorage.getItem('mnm_token'));
   wireRoom();
  }catch(e){
-  sessionStorage.removeItem('mnm_token');
-  document.getElementById('reconnectRow').style.display='none';
+  try{sessionStorage.removeItem('mnm_token')}catch(e2){}
+  MNM.refreshResume(); // 戻れなくなっていた場合はUIから選択肢を消す
+  announce('前の試合には戻れませんでした');
  }
 };
 function moveVec(){let mx=0,my=0;
