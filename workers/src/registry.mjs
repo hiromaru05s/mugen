@@ -95,6 +95,26 @@ export class Registry extends DurableObject {
       return Response.json(out);
     }
 
+    // --- ゲスト戦績をアカウントへ引き継ぐ(ログイン直後に1回) ---
+    // Worker側でClerkトークンを検証済み。to=clerk:<sub> / from=guest:<端末トークン>
+    if (url.pathname === '/link' && request.method === 'POST') {
+      const { from, to, name } = await request.json();
+      if (!from || !to || from === to || !String(to).startsWith('clerk:') || !String(from).startsWith('guest:'))
+        return Response.json({ linked: false, reason: 'invalid' });
+      const src = this._user(from);
+      if (!src) return Response.json({ linked: false, reason: 'no-guest-record' });
+      const dstName = String(name || src.name || 'player').slice(0, 12);
+      this.sql.exec(`INSERT INTO users (id,name,kind,rp,matches,wins,updated_at) VALUES (?,?,'clerk',0,0,0,?)
+        ON CONFLICT(id) DO NOTHING`, to, dstName, Date.now());
+      this.sql.exec(`UPDATE users SET rp=rp+?, matches=matches+?, wins=wins+?, updated_at=?
+        WHERE id=?`, src.rp, src.matches, src.wins, Date.now(), to);
+      this.sql.exec(`UPDATE matches SET user_id=? WHERE user_id=?`, to, from);
+      this.sql.exec(`DELETE FROM users WHERE id=?`, from); // 端末側の記録は移動済みなので消す
+      const u = this._user(to);
+      return Response.json({ linked: true, moved: { rp: src.rp, matches: src.matches, wins: src.wins },
+        total: { rp: u.rp, matches: u.matches, wins: u.wins, rank: rankOf(u.rp) } });
+    }
+
     // --- 個人戦績(本人のみ。Worker側でトークン検証済みのuidだけが渡ってくる) ---
     if (url.pathname === '/me') {
       const id = url.searchParams.get('uid') || '';

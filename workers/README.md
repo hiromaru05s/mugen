@@ -26,7 +26,7 @@ m3からの構造変更点:
 cd workers
 npm install
 npm run dev        # http://localhost:8787 (テスト用チート: npx wrangler dev --var M2_DEV:1)
-npm test           # 認証15項目 + スモーク25項目(wrangler devを自動起動して検証・GitHub Actions CIも同じ)
+npm test           # 認証15 + 引き継ぎ7 + スモーク31項目(wrangler devを自動起動・GitHub Actions CIも同じ)
 ```
 
 ## デプロイ(初回)
@@ -72,12 +72,26 @@ npm run deploy       # https://mugen-no-mori.<アカウント名>.workers.dev �
 シークレットキーは**不要** — Clerkのセッションは公開JWKSでRS256検証しているため、サーバーが持つのは公開情報だけ。
 
 1. [clerk.com](https://clerk.com) でアプリを作成(無料枠あり)
-2. **API Keys** の *Publishable key*(`pk_test_...`)をコピー
-3. `wrangler.jsonc` の `vars` に貼る → `npm run deploy`
+2. **User & Authentication → Social Connections** で **Google** を有効化、
+   **Email** の *Email verification code*(パスワードレス)を有効化
+3. **API Keys** の *Publishable key*(`pk_test_...`)をコピー
+4. `wrangler.jsonc` の `vars` に貼る → `npm run deploy`
 
 ```jsonc
 "vars": { "CLERK_PUBLISHABLE_KEY": "pk_test_xxxxxxxx" }
 ```
+
+ログイン画面はClerkの既製モーダルではなく**自前UI**(LOREと同方式)で、ゲームの世界観に合わせてある:
+
+- **Googleで続ける** — `signIn.authenticateWithRedirect({strategy:'oauth_google'})`。戻りは `handleRedirectCallback` で処理
+- **メールアドレスで続ける** — パスワードレス。既存ユーザーはサインイン、未登録ならそのまま**新規登録**に切り替わる
+  (`signIn.create` → `email_code` / 失敗時は `signUp.create` → `prepareEmailAddressVerification`)
+- **ゲストのまま遊ぶ** — ログインせず即プレイ
+- ログイン済みは ホーム から **アカウント**(Clerkのプロフィール管理)と **ログアウト**
+
+**ゲスト戦績の引き継ぎ**: ログイン直後に `/api/link-guest` を1回呼び、`guest:<端末トークン>` の
+RP・試合履歴・職別統計を `clerk:<sub>` へ移す(移動後にゲスト行は削除するので二重計上しない)。
+これが無いと「ログインした瞬間に戦績が消えた」ように見えるため必須。
 
 - ログイン済み → 戦績は Clerk アカウント(`clerk:<sub>`)に紐づき、**別の端末でも引き継がれる**
 - 未ログイン → 端末トークン(`guest:<uuid>`)に紐づく。同じブラウザなら累積される

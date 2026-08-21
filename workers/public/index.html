@@ -61,6 +61,17 @@
  .resumeBox .rs{color:#8fa598;font-size:11px;margin-bottom:10px}
  .resumeBox .rbtns{display:flex;gap:8px}
  .resumeBox .rbtns button{flex:1;margin:0}
+ .panel.authPanel{min-width:min(360px,92vw)}
+ .gbtn{display:flex;align-items:center;justify-content:center;gap:10px;background:#e8e2d2;color:#1a1a1a;
+  border-color:#e8e2d2;font-weight:700}
+ .gbtn:hover{background:#fff;border-color:#fff}
+ .glogo{font-weight:900;font-size:17px;color:#4285f4}
+ .mbtn.ghost{background:none;border-color:#2c4038;color:#8fa598}
+ .mbtn.ghost:hover{border-color:#3a5248;color:#e8e2d2}
+ .orline{display:flex;align-items:center;gap:10px;margin:14px 0;color:#4a5c54;font-size:11px}
+ .orline:before,.orline:after{content:"";flex:1;height:1px;background:#2c4038}
+ .authMsg{margin-top:12px;font-size:12px;min-height:16px}
+ .authMsg.err{color:#e08a8a}.authMsg.ok{color:#8fe0a8}.authMsg.busy{color:#8fa598}
  .win{color:#8fe0a8}.lose{color:#8fa598}
  .panel{background:#16241f;border:1px solid #e0b64f;border-radius:12px;padding:24px;text-align:center;min-width:340px}
  .panel button{background:#1d3129;border:1px solid #3a5248;color:#e8e2d2;border-radius:8px;padding:10px 14px;
@@ -117,6 +128,38 @@
   <div id="homeReconnect" class="resumeBox" style="display:none"></div>
  </div>
 </div>
+
+<!-- ===== ログイン / 新規登録 ===== -->
+<div id="auth" class="screen" style="display:none"><div class="panel authPanel">
+ <button class="back" onclick="MNM.go('home')">← もどる</button>
+ <div class="brand" style="font-size:22px">夢 幻 の 森</div>
+ <p class="muted small" style="margin:10px 0 18px">アカウントを作ると、スマホでもPCでも同じ戦績で遊べます</p>
+
+ <div id="authStep1">
+  <button class="mbtn gbtn" onclick="MNM.startGoogle()"><span class="glogo">G</span> Googleで続ける</button>
+  <button class="mbtn" onclick="MNM.showEmail()">✉ メールアドレスで続ける</button>
+  <div class="orline"><span>または</span></div>
+  <button class="mbtn ghost" onclick="MNM.go('play')">ゲストのまま遊ぶ</button>
+  <p class="muted small" style="margin-top:12px">ゲストの戦績は、あとからログインすると引き継がれます</p>
+ </div>
+
+ <div id="authStep2" style="display:none">
+  <p class="muted small" style="margin-bottom:8px">メールアドレスに確認コードを送ります</p>
+  <input id="authEmail" type="email" placeholder="you@example.com" style="width:100%;box-sizing:border-box">
+  <button class="mbtn primary" style="margin-top:8px" onclick="MNM.sendCode()">確認コードを送る</button>
+  <button class="mbtn ghost" onclick="MNM.authBack()">← もどる</button>
+ </div>
+
+ <div id="authStep3" style="display:none">
+  <p class="muted small" style="margin-bottom:8px"><span id="authSentTo"></span> に届いた6桁のコードを入力</p>
+  <input id="authCode" inputmode="numeric" maxlength="6" placeholder="000000"
+   style="width:100%;box-sizing:border-box;letter-spacing:.5em;font-size:20px">
+  <button class="mbtn primary" style="margin-top:8px" onclick="MNM.verifyCode()">ログイン</button>
+  <button class="mbtn ghost" onclick="MNM.authBack()">← メールを変更</button>
+ </div>
+
+ <div id="authMsg" class="authMsg"></div>
+</div></div>
 
 <!-- ===== プレイ(職選択) ===== -->
 <div id="select" class="screen" style="display:none"><div class="panel">

@@ -5,7 +5,7 @@
 'use strict';
 const MNM = (() => {
   const CLS_JP = { warrior: '⚔近接', mage: '✦魔法', thief: '◆盗賊', priest: '✚僧侶', ranger: '➹遠距離' };
-  const SCREENS = ['home', 'select', 'mystats', 'rank', 'howtoScr'];
+  const SCREENS = ['home', 'auth', 'select', 'mystats', 'rank', 'howtoScr'];
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 
@@ -74,10 +74,19 @@ const MNM = (() => {
       sc.onerror = () => reject(new Error('clerk script load failed'));
       sc.onload = async () => {
         try {
-          await window.Clerk.load({ afterSignOutUrl: location.pathname });
+          await window.Clerk.load({ afterSignOutUrl: location.origin + '/' });
           state.clerk = window.Clerk;
+          // Google(OAuth)リダイレクトからの復帰を処理
+          if (/__clerk/i.test(location.search + location.hash)) {
+            try {
+              await window.Clerk.handleRedirectCallback({
+                afterSignInUrl: location.origin + '/', afterSignUpUrl: location.origin + '/' });
+              try { history.replaceState({}, '', location.origin + '/'); } catch (e2) { /* noop */ }
+            } catch (e2) { console.warn('[auth] redirect callback', e2); }
+          }
           state.user = window.Clerk.user || null;
           window.Clerk.addListener(({ user }) => { state.user = user || null; renderHome(); });
+          if (state.user) afterSignIn().catch(() => { /* 引き継ぎ失敗は致命的でない */ });
           resolve();
         } catch (e) { reject(e); }
       };
@@ -90,8 +99,104 @@ const MNM = (() => {
     if (!u) return null;
     return u.username || u.firstName || (u.primaryEmailAddress && u.primaryEmailAddress.emailAddress.split('@')[0]) || 'user';
   }
-  async function signIn() { if (state.clerk) state.clerk.openSignIn({ afterSignInUrl: location.pathname }); }
-  async function signOut() { if (state.clerk) await state.clerk.signOut(); state.user = null; renderHome(); }
+  function signIn() { go('auth'); }
+
+  /* ---------- ログイン導線(LORE同様の自前UI: Googleリダイレクト + メールコード) ---------- */
+  const authMsg = (text, cls) => { const el = $('authMsg'); if (el) { el.textContent = text || ''; el.className = 'authMsg ' + (cls || ''); } };
+  function authStep(n) {
+    for (const i of [1, 2, 3]) { const el = $('authStep' + i); if (el) el.style.display = i === n ? 'block' : 'none'; }
+    authMsg('');
+  }
+  function showEmail() { authStep(2); setTimeout(() => { const el = $('authEmail'); if (el) el.focus(); }, 50); }
+  function authBack() { state.signIn = null; state.signUp = null; authStep(1); }
+
+  function clerkOrWarn() {
+    if (state.clerk) return state.clerk;
+    authMsg(state.config && state.config.authEnabled
+      ? 'ログイン機能に接続できませんでした。ゲストのまま遊べます'
+      : 'このサーバーではログインは未設定です。ゲストのまま遊べます', 'err');
+    return null;
+  }
+
+  // Google: OAuthリダイレクト。戻ってきたら init() の handleRedirectCallback がセッションを確立する
+  async function startGoogle() {
+    const c = clerkOrWarn(); if (!c) return;
+    authMsg('Googleへ移動しています…', 'busy');
+    try {
+      await c.client.signIn.authenticateWithRedirect({
+        strategy: 'oauth_google', redirectUrl: location.origin + '/', redirectUrlComplete: location.origin + '/',
+      });
+    } catch (e) { authMsg(errText(e), 'err'); }
+  }
+
+  // メール: パスワードレス。既存ユーザーはサインイン、居なければそのまま新規登録に切り替える
+  async function sendCode() {
+    const c = clerkOrWarn(); if (!c) return;
+    const email = ($('authEmail').value || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return authMsg('メールアドレスの形式を確認してください', 'err');
+    authMsg('確認コードを送信中…', 'busy');
+    state.email = email; state.signIn = null; state.signUp = null;
+    try {
+      let si = await c.client.signIn.create({ identifier: email });
+      const f = (si.supportedFirstFactors || []).find(x => x.strategy === 'email_code');
+      if (!f) throw new Error('email_code disabled');
+      state.signIn = await si.prepareFirstFactor({ strategy: 'email_code', emailAddressId: f.emailAddressId });
+    } catch (e) {
+      // 未登録のメール → 新規登録フローへ(会員登録もここで完結する)
+      try {
+        const su = await c.client.signUp.create({ emailAddress: email });
+        state.signUp = await su.prepareEmailAddressVerification({ strategy: 'email_code' });
+      } catch (e2) { return authMsg(errText(e2), 'err'); }
+    }
+    $('authSentTo').textContent = email;
+    authStep(3);
+    setTimeout(() => { const el = $('authCode'); if (el) el.focus(); }, 50);
+    authMsg('コードを送りました', 'ok');
+  }
+
+  async function verifyCode() {
+    const c = clerkOrWarn(); if (!c) return;
+    const code = ($('authCode').value || '').replace(/\D/g, '');
+    if (code.length < 6) return authMsg('6桁のコードを入力してください', 'err');
+    authMsg('確認中…', 'busy');
+    try {
+      let res;
+      if (state.signIn) res = await state.signIn.attemptFirstFactor({ strategy: 'email_code', code });
+      else if (state.signUp) res = await state.signUp.attemptEmailAddressVerification({ code });
+      else return authMsg('もう一度メールアドレスから始めてください', 'err');
+      const sid = res.createdSessionId;
+      if (!sid) return authMsg('確認できませんでした。コードをご確認ください', 'err');
+      await c.setActive({ session: sid });
+      await afterSignIn();
+    } catch (e) { authMsg(errText(e), 'err'); }
+  }
+
+  function errText(e) {
+    const m = e && (e.errors && e.errors[0] && (e.errors[0].longMessage || e.errors[0].message) || e.message);
+    return m ? String(m) : 'うまくいきませんでした。もう一度お試しください';
+  }
+
+  // ログイン直後: ゲストで貯めた戦績をアカウントへ引き継ぐ
+  async function afterSignIn() {
+    state.user = state.clerk && state.clerk.user || null;
+    authMsg('ログインしました', 'ok');
+    try {
+      const t = await getToken();
+      if (t) {
+        const r = await fetch('/api/link-guest', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t },
+          body: JSON.stringify({ guest: guestId(), name: displayName() }),
+        });
+        const d = await r.json();
+        if (d.linked) authMsg(`ゲストの戦績を引き継ぎました(${d.moved.matches}戦 / ${d.moved.rp}RP)`, 'ok');
+      }
+    } catch (e) { /* 引き継ぎ失敗でもログイン自体は成立している */ }
+    renderHome();
+    setTimeout(() => go('home'), 600);
+  }
+
+  function openProfile() { if (state.clerk) state.clerk.openUserProfile(); }
+  async function signOut() { if (state.clerk) await state.clerk.signOut(); state.user = null; renderHome(); go('home'); }
 
   /* ---------- 前の試合への復帰(続きから / 新規を選ばせる) ---------- */
   const CLS_ONLY = { warrior: '近接', mage: '魔法', thief: '盗賊', priest: '僧侶', ranger: '遠距離' };
@@ -145,14 +250,17 @@ const MNM = (() => {
     if (!state.config) { row.innerHTML = '<span class="muted">読み込み中…</span>'; return; }
     if (state.user) {
       row.innerHTML = `<span class="who">👤 ${esc(displayName())}</span><span class="rk" id="homeRank"></span>
-        <button class="mbtn small" style="float:right" onclick="MNM.signOut()">ログアウト</button>`;
+        <div style="margin-top:8px">
+          <button class="mbtn small" onclick="MNM.openProfile()">アカウント</button>
+          <button class="mbtn small" onclick="MNM.signOut()">ログアウト</button>
+        </div>`;
       fetchMe().then(me => { const el = $('homeRank'); if (el && me && me.found) el.textContent = `${me.rank} · ${me.rp}RP`; });
     } else if (state.config.authEnabled && state.authBroken) {
       row.innerHTML = '<span class="muted small">⚠ ログイン機能に接続できませんでした。この端末の記録として遊べます</span>';
     } else if (state.config.authEnabled) {
-      row.innerHTML = `<span class="muted">ログインすると別の端末でも戦績が引き継がれます</span>
+      row.innerHTML = `<span class="muted small">ログインすると、スマホでもPCでも同じ戦績で遊べます</span>
         <div style="margin-top:8px"><button class="mbtn small" onclick="MNM.signIn()">🔑 ログイン / 新規登録</button>
-        <span class="muted small" style="margin-left:8px">未ログインでもこの端末で遊べます</span></div>`;
+        <span class="muted small" style="margin-left:8px">未ログインでも遊べます</span></div>`;
     } else {
       row.innerHTML = '<span class="muted small">この端末の記録として戦績を保存します</span>';
     }
@@ -227,6 +335,7 @@ const MNM = (() => {
 
   addEventListener('DOMContentLoaded', initAuth);
   return { go, hideAll, signIn, signOut, authQuery, guestId, renderHome, state,
-    refreshResume, resumeMatch, discardMatch, startFlow };
+    refreshResume, resumeMatch, discardMatch, startFlow,
+    startGoogle, showEmail, sendCode, verifyCode, authBack, openProfile, afterSignIn };
 })();
 window.MNM = MNM;

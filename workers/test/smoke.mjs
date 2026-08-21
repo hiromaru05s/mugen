@@ -159,6 +159,11 @@ async function playToDragonKill(name, guest) {
   ok('本人確認なしの/api/meは401', noauth.status === 401);
   const stats = await fetch(HTTP + '/stats').then(r => r.text());
   ok('/statsリーダーボードに反映', stats.includes('リーダーボード') && stats.includes(name));
+  // ゲスト→アカウント引き継ぎ(Registryの/link。Worker側はClerkトークン必須)
+  const linkNoAuth = await fetch(`${HTTP}/api/link-guest`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guest }) });
+  ok('未ログインでは引き継ぎできない(401)', linkNoAuth.status === 401);
+
   const g2 = await playToDragonKill(name, guest);
   const me2 = g2.result && g2.result.players.find(p => p.name === name);
   ok('2戦目: 累計RP加算・matches=2', me2 && me2.totalRp === me.totalRp + me2.rp && me2.matches === 2);

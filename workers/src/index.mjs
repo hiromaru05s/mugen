@@ -29,6 +29,25 @@ export default {
       return json({ ...body, kind: user.kind });
     }
 
+    // テスト専用: Registry DOへの直通(M2_DEV=1のときだけ。本番では到達不可)
+    if (url.pathname.startsWith('/__reg/') && env.M2_DEV === '1') {
+      const reg = env.REGISTRY.get(env.REGISTRY.idFromName('main'));
+      return reg.fetch(new Request('https://registry' + url.pathname.slice(6) + url.search, request));
+    }
+
+    // ゲストで貯めた戦績をログイン先アカウントへ引き継ぐ(ログイン直後にクライアントが1回呼ぶ)
+    if (url.pathname === '/api/link-guest' && request.method === 'POST') {
+      const token = bearer(request) || url.searchParams.get('token');
+      const user = await resolveUser(env, token, null);
+      if (user.kind !== 'clerk' || !user.id) return json({ linked: false, reason: 'unauthenticated' }, 401);
+      let body = {}; try { body = await request.json(); } catch { /* noop */ }
+      const guest = typeof body.guest === 'string' && /^[a-zA-Z0-9_-]{8,64}$/.test(body.guest) ? body.guest : null;
+      if (!guest) return json({ linked: false, reason: 'invalid-guest' });
+      const reg = env.REGISTRY.get(env.REGISTRY.idFromName('main'));
+      return reg.fetch(new Request('https://registry/link', { method: 'POST',
+        body: JSON.stringify({ from: 'guest:' + guest, to: user.id, name: body.name }) }));
+    }
+
     // 前の試合にまだ戻れるか(クライアントが「続きから/新規」を出し分けるために使う)
     if (url.pathname === '/api/resume') {
       const token = url.searchParams.get('token') || '';
